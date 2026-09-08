@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { Tournament } from './data/tournaments';
 import { logout } from './actions';
+import { resolveRosterName } from './lib/name-matcher';
 
 type TournamentHistory = { tournament: string; date: string | null };
 export type Member = {
@@ -54,6 +55,7 @@ export function DashboardApp({ members, tournaments }: { members: Member[]; tour
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [formatFilter, setFormatFilter] = useState<'All' | Tournament['format']>('All');
   const [scheduleSearch, setScheduleSearch] = useState('');
+  const [nameTest, setNameTest] = useState('');
 
   const filteredMembers = useMemo(() => {
     const query = memberSearch.trim().toLowerCase();
@@ -79,6 +81,7 @@ export function DashboardApp({ members, tournaments }: { members: Member[]; tour
 
   const nextEvents = tournaments.slice(0, 4);
   const withHistory = members.filter((member) => member.tournamentHistory.length > 0).length;
+  const nameMatch = useMemo(() => resolveRosterName(nameTest, members), [members, nameTest]);
 
   const openTab = (nextTab: Tab) => {
     setTab(nextTab);
@@ -227,13 +230,24 @@ export function DashboardApp({ members, tournaments }: { members: Member[]; tour
           <div className="tab-content">
             <section className="connection-hero"><div><p className="eyebrow">Simple automation path</p><h2>Google Form in. Dashboard out.</h2><p>This setup avoids putting a Google API key in the browser. A school-managed Sheet can remain the collection source, while the dashboard receives only the fields needed for payment matching.</p></div><span><Settings2 size={24} /> Not connected</span></section>
             <section className="connection-flow" aria-label="Proposed data connection">
-              <article><span><FileSpreadsheet size={22} /></span><p>1 · Collect</p><h3>Google Form</h3><small>Student, tournament, amount, event</small></article><ChevronRight className="flow-arrow" />
+              <article><span><FileSpreadsheet size={22} /></span><p>1 · Collect</p><h3>Google Form</h3><small>Free-text student name, payment details, receipt</small><a className="data-link" href="https://docs.google.com/forms/d/e/1FAIpQLSdU1fEBANK17dDXVQGy2l2NihRtmpiGFNerTQECgc2qOj1wCw/viewform" target="_blank" rel="noreferrer">Open payment form <ArrowUpRight size={14} /></a></article><ChevronRight className="flow-arrow" />
               <article><span><Database size={22} /></span><p>2 · Store</p><h3>Google Sheet</h3><small>School account remains the source</small></article><ChevronRight className="flow-arrow" />
               <article><span><WalletCards size={22} /></span><p>3 · Reflect</p><h3>This dashboard</h3><small>Paid, unpaid, late, and history</small></article>
             </section>
             <section className="setup-grid">
-              <article><p className="eyebrow">Already done</p><h3>Clean roster foundation</h3><ul><li><Check size={15} />158 unique returning students</li><li><Check size={15} />No purchaser emails or order numbers</li><li><Check size={15} />Prior tournament appearances retained</li></ul></article>
+              <article><p className="eyebrow">Already done</p><h3>Clean roster foundation</h3><ul><li><Check size={15} />158 unique returning students</li><li><Check size={15} />Free-text name resolver</li><li><Check size={15} />Prior tournament appearances retained</li></ul></article>
               <article><p className="eyebrow">Needed from you later</p><h3>Connection details</h3><ul><li><span>—</span>Google Form and response Sheet</li><li><span>—</span>Fee and deadline for each tournament</li><li><span>—</span>Late-fee rule</li></ul></article>
+            </section>
+            <section className="name-matcher">
+              <div><p className="eyebrow">Free-text matching</p><h2>No dropdown required.</h2><p>Names are cleaned for capitalization, extra spaces, punctuation, accents, and “last name, first name” order. Confident spelling mistakes are matched automatically; uncertain entries wait for review instead of being attached to the wrong student.</p></div>
+              <div className="matcher-demo">
+                <label htmlFor="name-test">Try a student name</label>
+                <input id="name-test" value={nameTest} onChange={(event) => setNameTest(event.target.value)} placeholder="Type it as a student might" />
+                {nameMatch.status === 'empty' ? <p className="match-muted">Example: extra spaces, lowercase, or a small typo.</p> : null}
+                {nameMatch.status === 'matched' ? <div className="match-result matched"><span><Check size={16} /> Matched</span><strong>{nameMatch.member.name}</strong><small>{Math.round(nameMatch.confidence * 100)}% confidence · {nameMatch.method}</small></div> : null}
+                {nameMatch.status === 'review' ? <div className="match-result review"><span>Needs review</span><strong>{nameMatch.suggestions[0]?.name ?? 'No safe match'}</strong><small>{nameMatch.suggestions.length ? `Possible: ${nameMatch.suggestions.map((member) => member.name).join(', ')}` : 'No roster suggestions'}</small></div> : null}
+                {nameMatch.status === 'unmatched' ? <div className="match-result review"><span>Not matched</span><strong>Leave unassigned</strong><small>The submission stays in the review queue.</small></div> : null}
+              </div>
             </section>
             <p className="source-note">Source note: Membership and history came from the supplied Speech and Debate ledger. Tournament dates came from the supplied 2026–27 draft schedule. Obvious January–June year labels were normalized to 2027; all TBA details remain marked TBA.</p>
           </div>
