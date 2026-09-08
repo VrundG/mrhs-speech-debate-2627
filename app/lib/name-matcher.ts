@@ -38,7 +38,7 @@ function editDistance(left: string, right: string) {
   return row[right.length];
 }
 
-function similarity(left: string, right: string) {
+export function textSimilarity(left: string, right: string) {
   const longest = Math.max(left.length, right.length);
   return longest === 0 ? 1 : 1 - editDistance(left, right) / longest;
 }
@@ -48,10 +48,10 @@ function scoreName(input: string, rosterName: string) {
   const normalizedRoster = normalizePersonName(rosterName);
   const inputTokens = normalizedInput.split(' ').filter(Boolean);
   const rosterTokens = normalizedRoster.split(' ').filter(Boolean);
-  const direct = similarity(normalizedInput, normalizedRoster);
-  const reordered = similarity(canonicalName(input), canonicalName(rosterName));
+  const direct = textSimilarity(normalizedInput, normalizedRoster);
+  const reordered = textSimilarity(canonicalName(input), canonicalName(rosterName));
   const tokenScore = inputTokens.reduce((sum, token) => {
-    const bestToken = Math.max(...rosterTokens.map((candidate) => similarity(token, candidate)), 0);
+    const bestToken = Math.max(...rosterTokens.map((candidate) => textSimilarity(token, candidate)), 0);
     return sum + bestToken;
   }, 0) / Math.max(inputTokens.length, rosterTokens.length, 1);
   return Math.max(direct, reordered * 0.98, tokenScore * 0.94);

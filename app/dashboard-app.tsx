@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import type { Tournament } from './data/tournaments';
+import type { PaymentSubmission } from '../db/payments';
 import { logout } from './actions';
 import { resolveRosterName } from './lib/name-matcher';
 
@@ -48,7 +49,13 @@ function readableHistoryDate(value: string | null) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`));
 }
 
-export function DashboardApp({ members, tournaments }: { members: Member[]; tournaments: Tournament[] }) {
+function readableSubmissionDate(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  }).format(new Date(value));
+}
+
+export function DashboardApp({ members, tournaments, payments }: { members: Member[]; tournaments: Tournament[]; payments: PaymentSubmission[] }) {
   const [tab, setTab] = useState<Tab>('overview');
   const [memberSearch, setMemberSearch] = useState('');
   const [historyOnly, setHistoryOnly] = useState(false);
@@ -81,6 +88,9 @@ export function DashboardApp({ members, tournaments }: { members: Member[]; tour
 
   const nextEvents = tournaments.slice(0, 4);
   const withHistory = members.filter((member) => member.tournamentHistory.length > 0).length;
+  const matchedPayments = payments.filter((payment) => payment.studentMatchStatus === 'matched' && ['matched', 'not_applicable'].includes(payment.tournamentMatchStatus));
+  const reviewPayments = payments.filter((payment) => payment.studentMatchStatus !== 'matched' || ['review', 'unmatched'].includes(payment.tournamentMatchStatus));
+  const latePayments = payments.filter((payment) => payment.paymentType.toLowerCase().includes('late'));
   const nameMatch = useMemo(() => resolveRosterName(nameTest, members), [members, nameTest]);
 
   const openTab = (nextTab: Tab) => {
@@ -124,7 +134,7 @@ export function DashboardApp({ members, tournaments }: { members: Member[]; tour
             <section className="status-grid" aria-label="Season status">
               <article className="metric-card metric-featured"><p>Returning roster</p><strong>{members.length}</strong><span>Duplicates removed from the ledger</span></article>
               <article className="metric-card"><p>Membership paid</p><strong>0 <small>/ {members.length}</small></strong><span>Returning fee: $45</span></article>
-              <article className="metric-card"><p>Open deadlines</p><strong>0</strong><span>All tournament deadlines are waiting to be set</span></article>
+              <article className="metric-card"><p>Receipts received</p><strong>{payments.length}</strong><span>{matchedPayments.length} matched · {reviewPayments.length} need review</span></article>
             </section>
 
             <section className="overview-grid">
@@ -139,7 +149,7 @@ export function DashboardApp({ members, tournaments }: { members: Member[]; tour
               </article>
               <article className="attention-card">
                 <p className="eyebrow">Setup queue</p><h2>Ready for the new year.</h2>
-                <ul><li><span>01</span>Add tournament fees and deadlines</li><li><span>02</span>Connect the payment response sheet</li><li><span>03</span>Review seniors when ready</li></ul>
+                <ul><li><span>01</span>Add tournament fees and deadlines</li><li><span>02</span>Install the one-time Sheet trigger</li><li><span>03</span>Review seniors when ready</li></ul>
               </article>
             </section>
 
@@ -216,27 +226,43 @@ export function DashboardApp({ members, tournaments }: { members: Member[]; tour
               <div className="section-title"><div><p className="eyebrow">Tournament entry</p><h2>Waiting for fee amounts</h2></div></div>
               <p className="body-copy">Each tournament has one flat student price regardless of event. Once a fee and deadline are entered, the dashboard can match form responses against the student roster and flag missing or late payments.</p>
             </section>
+            <section className="dashboard-section">
+              <div className="section-title"><div><p className="eyebrow">Form receipts</p><h2>Submission feed</h2></div><span className="status-pill">{matchedPayments.length} matched · {reviewPayments.length} review</span></div>
+              {payments.length ? <div className="payment-feed">
+                {payments.map((payment) => (
+                  <article className="payment-record" key={payment.id}>
+                    <div><strong>{payment.matchedStudentName ?? payment.studentNameRaw}</strong><small>{readableSubmissionDate(payment.formTimestamp)}</small></div>
+                    <div><span>{payment.matchedTournamentName ?? payment.tournamentNameRaw ?? payment.paymentFor}</span><small>{payment.paymentType}</small></div>
+                    <span className={`match-chip ${payment.studentMatchStatus === 'matched' && ['matched', 'not_applicable'].includes(payment.tournamentMatchStatus) ? 'good' : 'review'}`}>{payment.studentMatchStatus === 'matched' && ['matched', 'not_applicable'].includes(payment.tournamentMatchStatus) ? 'Matched' : 'Review'}</span>
+                    {payment.receiptUrl ? <a href={payment.receiptUrl} target="_blank" rel="noreferrer">Receipt <ArrowUpRight size={14} /></a> : <span className="receipt-missing">No receipt</span>}
+                  </article>
+                ))}
+              </div> : <div className="inline-empty"><p>No form submissions yet.</p><span>The first receipt will appear here automatically after the Sheet trigger is installed.</span></div>}
+            </section>
           </div>
         ) : null}
 
         {tab === 'late' ? (
           <div className="tab-content">
-            <section className="empty-state"><span className="empty-icon"><Check size={28} /></span><p className="eyebrow orange">Nothing overdue</p><h2>No late balances yet.</h2><p>Deadlines and late charges have not been entered. When they are, students will appear here automatically after a tournament deadline passes.</p></section>
+            {latePayments.length ? <section className="dashboard-section late-submissions">
+              <div className="section-title"><div><p className="eyebrow">Submitted as late</p><h2>{latePayments.length} late payment{latePayments.length === 1 ? '' : 's'}</h2></div></div>
+              {latePayments.map((payment) => <article key={payment.id}><strong>{payment.matchedStudentName ?? payment.studentNameRaw}</strong><span>{payment.matchedTournamentName ?? payment.tournamentNameRaw ?? payment.paymentFor}</span><small>{readableSubmissionDate(payment.formTimestamp)}</small></article>)}
+            </section> : <section className="empty-state"><span className="empty-icon"><Check size={28} /></span><p className="eyebrow orange">Nothing overdue</p><h2>No late balances yet.</h2><p>Deadlines and late charges have not been entered. When they are, students will appear here automatically after a tournament deadline passes.</p></section>}
             <section className="late-flow"><article><span>01</span><h3>Deadline passes</h3><p>The tournament’s due date becomes the cutoff.</p></article><article><span>02</span><h3>Payment checked</h3><p>The latest form and sheet entries are matched by student.</p></article><article><span>03</span><h3>Late fee applied</h3><p>The configured one-time or recurring charge appears here.</p></article></section>
           </div>
         ) : null}
 
         {tab === 'data' ? (
           <div className="tab-content">
-            <section className="connection-hero"><div><p className="eyebrow">Simple automation path</p><h2>Google Form in. Dashboard out.</h2><p>This setup avoids putting a Google API key in the browser. A school-managed Sheet can remain the collection source, while the dashboard receives only the fields needed for payment matching.</p></div><span><Settings2 size={24} /> Not connected</span></section>
+            <section className="connection-hero"><div><p className="eyebrow">Simple automation path</p><h2>Google Form in. Dashboard out.</h2><p>This setup avoids putting a Google API key in the browser. The linked school Sheet remains the source, while the dashboard stores only the fields needed for payment matching.</p></div><span><Settings2 size={24} /> Endpoint ready</span></section>
             <section className="connection-flow" aria-label="Proposed data connection">
               <article><span><FileSpreadsheet size={22} /></span><p>1 · Collect</p><h3>Google Form</h3><small>Free-text student name, payment details, receipt</small><a className="data-link" href="https://docs.google.com/forms/d/e/1FAIpQLSdU1fEBANK17dDXVQGy2l2NihRtmpiGFNerTQECgc2qOj1wCw/viewform" target="_blank" rel="noreferrer">Open payment form <ArrowUpRight size={14} /></a></article><ChevronRight className="flow-arrow" />
-              <article><span><Database size={22} /></span><p>2 · Store</p><h3>Google Sheet</h3><small>School account remains the source</small></article><ChevronRight className="flow-arrow" />
+              <article><span><Database size={22} /></span><p>2 · Store</p><h3>Google Sheet</h3><small>Seven response fields confirmed</small><a className="data-link" href="https://docs.google.com/spreadsheets/d/1Bf5d0bSvPOAEfYB_ENPNiiIRbCXS_XAjhMCIurttCSg/edit" target="_blank" rel="noreferrer">Open response Sheet <ArrowUpRight size={14} /></a></article><ChevronRight className="flow-arrow" />
               <article><span><WalletCards size={22} /></span><p>3 · Reflect</p><h3>This dashboard</h3><small>Paid, unpaid, late, and history</small></article>
             </section>
             <section className="setup-grid">
               <article><p className="eyebrow">Already done</p><h3>Clean roster foundation</h3><ul><li><Check size={15} />158 unique returning students</li><li><Check size={15} />Free-text name resolver</li><li><Check size={15} />Prior tournament appearances retained</li></ul></article>
-              <article><p className="eyebrow">Needed from you later</p><h3>Connection details</h3><ul><li><span>—</span>Google Form and response Sheet</li><li><span>—</span>Fee and deadline for each tournament</li><li><span>—</span>Late-fee rule</li></ul></article>
+              <article><p className="eyebrow">One-time setup</p><h3>Finish the bridge</h3><ul><li><span>—</span>Install the Sheet trigger</li><li><span>—</span>Fee and deadline for each tournament</li><li><span>—</span>Late-fee rule</li></ul></article>
             </section>
             <section className="name-matcher">
               <div><p className="eyebrow">Free-text matching</p><h2>No dropdown required.</h2><p>Names are cleaned for capitalization, extra spaces, punctuation, accents, and “last name, first name” order. Confident spelling mistakes are matched automatically; uncertain entries wait for review instead of being attached to the wrong student.</p></div>
