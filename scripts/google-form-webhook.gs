@@ -2,7 +2,9 @@ const DASHBOARD_ENDPOINT = 'https://mrhs-speech-debate-2627.lebronbron99.chatgpt
 
 function onFormSubmit(e) {
   const secret = PropertiesService.getScriptProperties().getProperty('MRHS_WEBHOOK_SECRET');
+  const bypassToken = PropertiesService.getScriptProperties().getProperty('MRHS_SITES_BYPASS_TOKEN');
   if (!secret) throw new Error('Add MRHS_WEBHOOK_SECRET in Apps Script project settings.');
+  if (!bypassToken) throw new Error('Add MRHS_SITES_BYPASS_TOKEN in Apps Script project settings.');
 
   const values = e.namedValues;
   const sheet = e.range.getSheet();
@@ -25,7 +27,7 @@ function onFormSubmit(e) {
     contentType: 'application/json',
     headers: {
       Authorization: 'Bearer ' + secret,
-      'OAI-Sites-Authorization': 'Bearer ' + secret,
+      'OAI-Sites-Authorization': 'Bearer ' + bypassToken,
     },
     payload: JSON.stringify(payload),
     muteHttpExceptions: true,

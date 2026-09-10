@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { Tournament } from './data/tournaments';
 import type { PaymentSubmission } from '../db/payments';
+import type { ChaperoneSubmission } from '../db/chaperones';
 import { logout } from './actions';
 import { resolveRosterName } from './lib/name-matcher';
 
@@ -35,6 +36,12 @@ export type Member = {
 };
 
 type Tab = 'overview' | 'members' | 'tournaments' | 'payments' | 'late' | 'data';
+type ChaperoneFilter = 'All' | 'Has chaperone' | 'No chaperone';
+type ChaperoneRelationship = {
+  parentName: string;
+  tournamentNames: string[];
+  approvedVolunteer: 'yes' | 'no' | 'unknown';
+};
 
 const tabLabels: Record<Tab, string> = {
   overview: 'Overview', members: 'Members', tournaments: 'Tournaments', payments: 'Payments', late: 'Late payments', data: 'Data setup',
@@ -55,22 +62,43 @@ function readableSubmissionDate(value: string) {
   }).format(new Date(value));
 }
 
-export function DashboardApp({ members, tournaments, payments }: { members: Member[]; tournaments: Tournament[]; payments: PaymentSubmission[] }) {
+export function DashboardApp({ members, tournaments, payments, chaperones }: { members: Member[]; tournaments: Tournament[]; payments: PaymentSubmission[]; chaperones: ChaperoneSubmission[] }) {
   const [tab, setTab] = useState<Tab>('overview');
   const [memberSearch, setMemberSearch] = useState('');
   const [historyOnly, setHistoryOnly] = useState(false);
+  const [chaperoneFilter, setChaperoneFilter] = useState<ChaperoneFilter>('All');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [formatFilter, setFormatFilter] = useState<'All' | Tournament['format']>('All');
   const [scheduleSearch, setScheduleSearch] = useState('');
   const [nameTest, setNameTest] = useState('');
 
+  const chaperonesByMember = useMemo(() => {
+    const grouped: Record<string, Map<string, ChaperoneRelationship>> = {};
+    for (const submission of chaperones) {
+      if (submission.studentMatchStatus !== 'matched' || !submission.memberId) continue;
+      const parents = grouped[submission.memberId] ??= new Map<string, ChaperoneRelationship>();
+      const key = submission.parentName.trim().toLowerCase();
+      const existing = parents.get(key);
+      const tournamentNames = Array.from(new Set([...(existing?.tournamentNames ?? []), ...submission.tournamentNames]));
+      const approvedVolunteer = existing?.approvedVolunteer === 'yes' || submission.approvedVolunteer === 'yes'
+        ? 'yes'
+        : existing?.approvedVolunteer === 'no' || submission.approvedVolunteer === 'no' ? 'no' : 'unknown';
+      parents.set(key, { parentName: submission.parentName, tournamentNames, approvedVolunteer });
+    }
+    return Object.fromEntries(Object.entries(grouped).map(([memberId, parents]) => [
+      memberId,
+      Array.from(parents.values()).sort((a, b) => a.parentName.localeCompare(b.parentName)),
+    ])) as Record<string, ChaperoneRelationship[]>;
+  }, [chaperones]);
+
   const filteredMembers = useMemo(() => {
     const query = memberSearch.trim().toLowerCase();
     return members.filter((member) =>
       (!query || member.name.toLowerCase().includes(query)) &&
-      (!historyOnly || member.tournamentHistory.length > 0),
+      (!historyOnly || member.tournamentHistory.length > 0) &&
+      (chaperoneFilter === 'All' || (chaperoneFilter === 'Has chaperone') === Boolean(chaperonesByMember[member.id]?.length)),
     );
-  }, [historyOnly, memberSearch, members]);
+  }, [chaperoneFilter, chaperonesByMember, historyOnly, memberSearch, members]);
 
   const filteredTournaments = useMemo(() => {
     const query = scheduleSearch.trim().toLowerCase();
@@ -88,6 +116,7 @@ export function DashboardApp({ members, tournaments, payments }: { members: Memb
 
   const nextEvents = tournaments.slice(0, 4);
   const withHistory = members.filter((member) => member.tournamentHistory.length > 0).length;
+  const withChaperone = members.filter((member) => chaperonesByMember[member.id]?.length).length;
   const matchedPayments = payments.filter((payment) => payment.studentMatchStatus === 'matched' && ['matched', 'not_applicable'].includes(payment.tournamentMatchStatus));
   const reviewPayments = payments.filter((payment) => payment.studentMatchStatus !== 'matched' || ['review', 'unmatched'].includes(payment.tournamentMatchStatus));
   const latePayments = payments.filter((payment) => payment.paymentType.toLowerCase().includes('late'));
@@ -169,13 +198,16 @@ export function DashboardApp({ members, tournaments, payments }: { members: Memb
             <section className="toolbar" aria-label="Member filters">
               <label className="search-field"><Search size={17} /><input value={memberSearch} onChange={(event) => setMemberSearch(event.target.value)} placeholder="Search 158 students" aria-label="Search students" /></label>
               <button className={`filter-button ${historyOnly ? 'selected' : ''}`} onClick={() => setHistoryOnly((value) => !value)} type="button"><History size={16} /> Has tournament history</button>
+              <div className="filter-group" aria-label="Chaperone status">
+                {(['All', 'Has chaperone', 'No chaperone'] as const).map((filter) => <button key={filter} className={`filter-button ${chaperoneFilter === filter ? 'selected' : ''}`} onClick={() => setChaperoneFilter(filter)} type="button">{filter}</button>)}
+              </div>
             </section>
-            <div className="table-summary"><p><strong>{filteredMembers.length}</strong> students shown</p><span>All are returning members · All are unpaid</span></div>
+            <div className="table-summary"><p><strong>{filteredMembers.length}</strong> students shown</p><span>{withChaperone} have a linked parent chaperone · All are returning members</span></div>
             <div className="member-table" aria-label="Member roster">
               <div className="member-row table-head"><span>Name</span><span>Role</span><span>2026–27</span><span>History</span><span aria-hidden="true" /></div>
               {filteredMembers.map((member) => (
                 <button className="member-row" key={member.id} onClick={() => setSelectedMember(member)} type="button">
-                  <span className="member-name"><i>{member.name.split(' ').map((part) => part[0]).slice(0, 2).join('')}</i><b>{member.name}</b></span>
+                  <span className="member-name"><i>{member.name.split(' ').map((part) => part[0]).slice(0, 2).join('')}</i><span className="member-identity"><b>{member.name}</b><small>{chaperonesByMember[member.id]?.length ? `Chaperone: ${chaperonesByMember[member.id].map((item) => item.parentName).join(', ')}` : 'No chaperone linked'}</small></span></span>
                   <span>{member.role}</span><span><em className="status-dot unpaid" /> $45 unpaid</span><span>{member.tournamentHistory.length} tournaments</span><ChevronRight size={16} />
                 </button>
               ))}
@@ -287,6 +319,9 @@ export function DashboardApp({ members, tournaments, payments }: { members: Memb
             <span className="drawer-avatar"><UserRound size={30} /></span><p className="eyebrow orange">Member record</p><h2>{selectedMember.name}</h2>
             <div className="member-tags"><span>Student</span><span>Returning member</span></div>
             <section className="drawer-balance"><div><span>2026–27 membership</span><strong>$45</strong></div><b><em className="status-dot unpaid" /> Unpaid</b></section>
+            <section className="drawer-section"><p className="eyebrow">Parent chaperone · {chaperonesByMember[selectedMember.id]?.length ?? 0}</p>
+              {chaperonesByMember[selectedMember.id]?.length ? <ul className="chaperone-list">{chaperonesByMember[selectedMember.id].map((item) => <li key={item.parentName}><strong>{item.parentName}</strong><span>{item.approvedVolunteer === 'yes' ? 'UCPS approved' : item.approvedVolunteer === 'no' ? 'UCPS approval pending' : 'Approval not recorded'}</span><small>{item.tournamentNames.length ? item.tournamentNames.join(' · ') : 'Tournament not recorded'}</small></li>)}</ul> : <p className="body-copy">No parent response has been matched to this student.</p>}
+            </section>
             <section className="drawer-section"><p className="eyebrow">Competitive event</p><p className="body-copy">Not recorded in the payment ledger. This field is ready for the registration form.</p></section>
             <section className="drawer-section"><p className="eyebrow">Tournament history · {selectedMember.tournamentHistory.length}</p>
               {selectedMember.tournamentHistory.length ? <ul className="history-list">{selectedMember.tournamentHistory.map((item) => <li key={item.tournament}><span>{item.tournament}</span><small>{readableHistoryDate(item.date)}</small></li>)}</ul> : <p className="body-copy">No prior tournament payments were found for this student.</p>}
