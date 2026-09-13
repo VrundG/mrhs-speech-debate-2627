@@ -25,7 +25,7 @@ Install dependencies with `pnpm install`, then run `pnpm dev`. Create a local `.
 
 ## Deployment
 
-Cloudflare Workers Builds runs `pnpm deploy` after each push to `main`. Database migrations live in `drizzle/`. The initial roster is imported through the authenticated `/api/roster-sync` endpoint and is never stored in this repository.
+Run `pnpm deploy` after a validated change to publish it to the existing Cloudflare Worker. Changes made through the Codex workspace are deployed to the same public address before handoff, so the site owner does not upload HTML files. Database migrations live in `drizzle/`. The initial roster is imported through the authenticated `/api/roster-sync` endpoint and is never stored in this repository.
 
 ## Google Forms
 
