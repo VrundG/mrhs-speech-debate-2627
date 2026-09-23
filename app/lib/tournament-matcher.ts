@@ -8,8 +8,17 @@ export type TournamentMatch =
   | { status: 'unmatched'; confidence: null; suggestions: Tournament[] };
 
 function tournamentScore(input: string, tournament: Tournament) {
-  const normalizedInput = normalizePersonName(input);
-  const normalizedName = normalizePersonName(tournament.name);
+  const aliases: Record<string, string> = {
+    'north mecklenburg viking classic': 'n mecklenburg viking classic',
+    'north meck viking classic': 'n mecklenburg viking classic',
+    'marvin tutorial': 'mrhs fall scrimmage',
+    'marvin ridge speech debate tutorial': 'mrhs fall scrimmage',
+    'marvin fall scrimmage': 'mrhs fall scrimmage',
+    'nsda springboard scrimmage 1 online': 'nsda springboard scrimmage 1',
+  };
+  const baseInput = normalizePersonName(input.replace(/\([^)]*\d{1,2}\s*\/\s*\d{1,2}[^)]*\)/g, ''));
+  const normalizedInput = aliases[baseInput] ?? baseInput;
+  const normalizedName = aliases[normalizePersonName(tournament.name)] ?? normalizePersonName(tournament.name);
   const inputTokens = normalizedInput.split(' ').filter(Boolean);
   const nameTokens = normalizedName.split(' ').filter(Boolean);
   if (normalizedName === normalizedInput) return 1;

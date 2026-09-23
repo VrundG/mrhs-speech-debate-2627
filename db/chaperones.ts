@@ -10,6 +10,10 @@ export type ChaperoneSubmission = {
   sourceRow: number | null;
   formTimestamp: string;
   parentName: string;
+  parentEmail: string | null;
+  parentPhone: string | null;
+  desiredEvent: string | null;
+  transport: string | null;
   studentNameRaw: string;
   memberId: string | null;
   matchedStudentName: string | null;
@@ -26,6 +30,10 @@ type ChaperoneRow = {
   source_row: number | null;
   form_timestamp: string;
   parent_name: string;
+  parent_email: string | null;
+  parent_phone: string | null;
+  desired_event: string | null;
+  transport: string | null;
   student_name_raw: string;
   member_id: string | null;
   matched_student_name: string | null;
@@ -66,6 +74,10 @@ function toChaperone(row: ChaperoneRow): ChaperoneSubmission {
     sourceRow: row.source_row,
     formTimestamp: row.form_timestamp,
     parentName: row.parent_name,
+    parentEmail: row.parent_email,
+    parentPhone: row.parent_phone,
+    desiredEvent: row.desired_event,
+    transport: row.transport,
     studentNameRaw: row.student_name_raw,
     memberId: row.member_id,
     matchedStudentName: row.matched_student_name,
@@ -81,7 +93,7 @@ function toChaperone(row: ChaperoneRow): ChaperoneSubmission {
 export async function listChaperoneSubmissions(limit = 6000) {
   const db = await ensureChaperoneSchema();
   const result = await db.prepare(`
-    SELECT id, source_row, form_timestamp, parent_name, student_name_raw, member_id,
+    SELECT id, source_row, form_timestamp, parent_name, parent_email, parent_phone, desired_event, transport, student_name_raw, member_id,
       matched_student_name, student_match_status, student_match_confidence,
       tournament_names, confirmed_tournament_names, approved_volunteer, received_at
     FROM chaperone_submissions
@@ -105,10 +117,10 @@ export async function saveChaperoneSubmissions(inputs: SaveChaperoneInput[]) {
       ).bind(input.sourceKey);
       const upsert = db.prepare(
         'INSERT INTO chaperone_submissions ' +
-        '(id, source_key, source_row, form_timestamp, parent_name, student_name_raw, member_id, matched_student_name, student_match_status, student_match_confidence, tournament_names, confirmed_tournament_names, approved_volunteer) ' +
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+        '(id, source_key, source_row, form_timestamp, parent_name, parent_email, parent_phone, desired_event, transport, student_name_raw, member_id, matched_student_name, student_match_status, student_match_confidence, tournament_names, confirmed_tournament_names, approved_volunteer) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
         'ON CONFLICT(source_key) DO UPDATE SET ' +
-        'source_row = excluded.source_row, form_timestamp = excluded.form_timestamp, parent_name = excluded.parent_name, ' +
+        'source_row = excluded.source_row, form_timestamp = excluded.form_timestamp, parent_name = excluded.parent_name, parent_email = excluded.parent_email, parent_phone = excluded.parent_phone, desired_event = excluded.desired_event, transport = excluded.transport, ' +
         'student_name_raw = excluded.student_name_raw, member_id = excluded.member_id, matched_student_name = excluded.matched_student_name, ' +
         'student_match_status = excluded.student_match_status, student_match_confidence = excluded.student_match_confidence, ' +
         'tournament_names = excluded.tournament_names, confirmed_tournament_names = excluded.confirmed_tournament_names, approved_volunteer = excluded.approved_volunteer, updated_at = CURRENT_TIMESTAMP',
@@ -118,6 +130,10 @@ export async function saveChaperoneSubmissions(inputs: SaveChaperoneInput[]) {
         input.sourceRow,
         input.formTimestamp,
         input.parentName,
+        input.parentEmail,
+        input.parentPhone,
+        input.desiredEvent,
+        input.transport,
         input.studentNameRaw,
         input.memberId,
         input.matchedStudentName,

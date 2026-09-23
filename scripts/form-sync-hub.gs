@@ -2,8 +2,11 @@ const MRHS_DASHBOARD_BASE = 'https://mrhs-speech-debate-2627.vrundgurjar.workers
 const MRHS_SHEETS = {
   payment: '1Bf5d0bSvPOAEfYB_ENPNiiIRbCXS_XAjhMCIurttCSg',
   membership: '1ncybdNpZ_11tDP02CaSYaQlAZlRYJ1dJuWcsWqrBjxI',
-  setup: '1OegszqyzIeL0U_SeM2wEovTceEUqITSo4Zo2gq0l9OU'
+  setup: '1OegszqyzIeL0U_SeM2wEovTceEUqITSo4Zo2gq0l9OU',
+  chaperone: '1t83_hjde59UwDBxsMqisNPH-iVJnFH8602RJECWJHYs',
+  intent: '16Xw9-ddqBbr_dlWBTcqituH4TjjdGFu5TPtGdGzkQBc'
 };
+const MRHS_SHEET_TABS = { payment: 'Form Responses 1', membership: 'Form Responses 1', setup: 'Form Responses 1', chaperone: 'Judges 25-26', intent: '26-27 Intent Entries' };
 
 function isoTimestamp(value) {
   if (value instanceof Date && !isNaN(value.getTime())) return value.toISOString();
@@ -22,7 +25,9 @@ function firstValue(values, headings) {
 function rowEvent_(source, sheet, rowNumber, headings, row) {
   const namedValues = {};
   headings.forEach(function (heading, columnIndex) {
-    namedValues[String(heading).trim()] = [row[columnIndex]];
+    const key = String(heading).trim();
+    if (!namedValues[key]) namedValues[key] = [];
+    namedValues[key].push(row[columnIndex]);
   });
   return { source: source, range: sheet.getRange(rowNumber, 1), namedValues: namedValues };
 }
@@ -85,6 +90,42 @@ function setupPayload_(e) {
   };
 }
 
+function splitTournaments_(value) {
+  return String(value || '').split(/\s*,\s*(?=[A-Z0-9])/).map(function (item) { return item.trim(); }).filter(Boolean);
+}
+
+function chaperonePayload_(e) {
+  const values = e.namedValues;
+  const firstName = firstValue(values, ['First Name']);
+  const lastName = firstValue(values, ['Last Name']);
+  return {
+    sourceKey: sourceKey_(e), sourceRow: e.range.getRow(), timestamp: isoTimestamp(firstValue(values, ['Timestamp'])),
+    parentName: [firstName, lastName].filter(Boolean).join(' '), parentEmail: firstValue(values, ['Email Address']),
+    parentPhone: firstValue(values, ['Phone Number']), studentName: firstValue(values, ['Child Name']),
+    desiredEvent: firstValue(values, ['Desired Event to Judge']), transport: firstValue(values, ['Can you ride the bus with us to & from?']),
+    tournamentNames: splitTournaments_(firstValue(values, ['Tournament to Attend'])),
+    confirmedTournamentNames: splitTournaments_(firstValue(values, ['Confirmed Tournaments'])),
+    approvedVolunteer: firstValue(values, ['Already Approved UCPS Volunteer for 26-27? If not, please complete the form here: https://www.ucps.k12.nc.us/Page/5869', 'Already Approved UCPS Volunteer for 26-27?'])
+  };
+}
+
+function intentPayload_(e) {
+  const values = e.namedValues;
+  return {
+    sourceKey: sourceKey_(e), sourceRow: e.range.getRow(), timestamp: isoTimestamp(firstValue(values, ['Timestamp'])),
+    studentName: [firstValue(values, ['First Name']), firstValue(values, ['Last Name'])].filter(Boolean).join(' '),
+    tabroomEmail: firstValue(values, ['Tabroom Email']), studentPhone: firstValue(values, ['Personal Cell #']),
+    tournamentName: firstValue(values, ['Tournament Name']), event: firstValue(values, ['Event']),
+    eventDetails: firstValue(values, ['Speech: Event Categories / Title & Author / PF: Partner & Speaker Order']),
+    parent1Name: [firstValue(values, ['Parent 1 First Name']), firstValue(values, ['Parent 1 Last Name'])].filter(Boolean).join(' '),
+    parent1Email: firstValue(values, ['Parent 1 Email']), parent1Phone: firstValue(values, ['Parent 1 Phone']),
+    parent1Judging: firstValue(values, ['Judging This Tournament?']),
+    parent2Name: [firstValue(values, ['Parent 2 First Name']), firstValue(values, ['Parent 2 Last Name'])].filter(Boolean).join(' '),
+    parent2Email: firstValue(values, ['Parent 2 Email']), parent2Phone: firstValue(values, ['Parent 2 Phone']),
+    parent2Judging: (function () { const valuesForHeading = values['Judging This Tournament?']; return Array.isArray(valuesForHeading) ? String(valuesForHeading[1] || '').trim() : ''; })()
+  };
+}
+
 function post_(path, payload) {
   const secret = PropertiesService.getScriptProperties().getProperty('MRHS_WEBHOOK_SECRET');
   if (!secret) throw new Error('MRHS_WEBHOOK_SECRET is missing from project settings.');
@@ -104,13 +145,15 @@ function onFormSubmit(e) {
   if (sourceId === MRHS_SHEETS.payment) return post_('/api/payment-submission', paymentPayload_(e));
   if (sourceId === MRHS_SHEETS.membership) return post_('/api/membership-submission', membershipPayload_(e));
   if (sourceId === MRHS_SHEETS.setup) return post_('/api/member-setup-submission', setupPayload_(e));
+  if (sourceId === MRHS_SHEETS.chaperone) return post_('/api/chaperone-submission', chaperonePayload_(e));
+  if (sourceId === MRHS_SHEETS.intent) return post_('/api/intent-submission', intentPayload_(e));
   throw new Error('This spreadsheet is not configured for the MRHS dashboard.');
 }
 
-function syncSheet_(sheetId, path, payloadBuilder) {
+function syncSheet_(sheetId, sheetName, path, payloadBuilder) {
   const source = SpreadsheetApp.openById(sheetId);
-  const sheet = source.getSheetByName('Form Responses 1');
-  if (!sheet) throw new Error('Could not find Form Responses 1 in ' + source.getName());
+  const sheet = source.getSheetByName(sheetName);
+  if (!sheet) throw new Error('Could not find ' + sheetName + ' in ' + source.getName());
   const data = sheet.getDataRange().getValues();
   const headings = data[0];
   const failures = [];
@@ -125,23 +168,33 @@ function syncSheet_(sheetId, path, payloadBuilder) {
 }
 
 function syncAllMembershipRows() {
-  const failures = syncSheet_(MRHS_SHEETS.membership, '/api/membership-submission', membershipPayload_);
+  const failures = syncSheet_(MRHS_SHEETS.membership, MRHS_SHEET_TABS.membership, '/api/membership-submission', membershipPayload_);
   if (failures.length) throw new Error('Membership sync has ' + failures.length + ' review item(s): ' + failures.slice(0, 10).join(' | '));
 }
 
 function syncAllSetupRows() {
-  const failures = syncSheet_(MRHS_SHEETS.setup, '/api/member-setup-submission', setupPayload_);
+  const failures = syncSheet_(MRHS_SHEETS.setup, MRHS_SHEET_TABS.setup, '/api/member-setup-submission', setupPayload_);
   if (failures.length) throw new Error('Account setup sync has ' + failures.length + ' review item(s): ' + failures.slice(0, 10).join(' | '));
 }
 
 function syncAllPaymentRows() {
-  const failures = syncSheet_(MRHS_SHEETS.payment, '/api/payment-submission', paymentPayload_);
+  const failures = syncSheet_(MRHS_SHEETS.payment, MRHS_SHEET_TABS.payment, '/api/payment-submission', paymentPayload_);
   if (failures.length) throw new Error('Payment sync has ' + failures.length + ' review item(s): ' + failures.slice(0, 10).join(' | '));
+}
+
+function syncAllChaperoneRows() {
+  const failures = syncSheet_(MRHS_SHEETS.chaperone, MRHS_SHEET_TABS.chaperone, '/api/chaperone-submission', chaperonePayload_);
+  if (failures.length) throw new Error('Chaperone sync has ' + failures.length + ' review item(s): ' + failures.slice(0, 10).join(' | '));
+}
+
+function syncAllIntentRows() {
+  const failures = syncSheet_(MRHS_SHEETS.intent, MRHS_SHEET_TABS.intent, '/api/intent-submission', intentPayload_);
+  if (failures.length) throw new Error('Intent sync has ' + failures.length + ' review item(s): ' + failures.slice(0, 10).join(' | '));
 }
 
 function syncAllDashboardData() {
   const reviews = [];
-  [syncAllMembershipRows, syncAllSetupRows, syncAllPaymentRows].forEach(function (syncFunction) {
+  [syncAllMembershipRows, syncAllSetupRows, syncAllPaymentRows, syncAllChaperoneRows, syncAllIntentRows].forEach(function (syncFunction) {
     try {
       syncFunction();
     } catch (error) {

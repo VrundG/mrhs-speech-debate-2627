@@ -23,8 +23,11 @@ import type { Tournament } from './data/tournaments';
 import type { PaymentSubmission } from '../db/payments';
 import type { ChaperoneSubmission } from '../db/chaperones';
 import type { Member } from '../db/members';
+import type { IntentSubmission } from '../db/intents';
+import type { TournamentPlan } from '../db/tournament-plans';
 import { logout } from './actions';
 import { resolveRosterName } from './lib/name-matcher';
+import { TournamentPlanner } from './tournament-planner';
 
 type Tab = 'overview' | 'members' | 'chaperones' | 'tournaments' | 'payments' | 'late' | 'data';
 type ChaperoneFilter = 'All' | 'Has chaperone' | 'No chaperone';
@@ -48,6 +51,8 @@ type IntegrationLinks = {
   paymentSheet: string | null;
   membershipSheet: string | null;
   setupSheet: string | null;
+  chaperoneSheet: string | null;
+  intentSheet: string | null;
 };
 
 type AccountSnapshot = {
@@ -92,7 +97,7 @@ function isHttpsLink(value: string | null): value is string {
   return Boolean(value && /^https:\/\//i.test(value));
 }
 
-export function DashboardApp({ members, tournaments, payments, chaperones, integrationLinks, accountSnapshot }: { members: Member[]; tournaments: Tournament[]; payments: PaymentSubmission[]; chaperones: ChaperoneSubmission[]; integrationLinks: IntegrationLinks; accountSnapshot: AccountSnapshot }) {
+export function DashboardApp({ members, tournaments, payments, chaperones, intents, tournamentPlans, integrationLinks, accountSnapshot }: { members: Member[]; tournaments: Tournament[]; payments: PaymentSubmission[]; chaperones: ChaperoneSubmission[]; intents: IntentSubmission[]; tournamentPlans: TournamentPlan[]; integrationLinks: IntegrationLinks; accountSnapshot: AccountSnapshot }) {
   const [tab, setTab] = useState<Tab>('overview');
   const [memberSearch, setMemberSearch] = useState('');
   const [historyOnly, setHistoryOnly] = useState(false);
@@ -111,6 +116,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
   const [formatFilter, setFormatFilter] = useState<'All' | Tournament['format']>('All');
   const [scheduleSearch, setScheduleSearch] = useState('');
   const [nameTest, setNameTest] = useState('');
+  const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
 
   const { chaperonesByMember, chaperoneDirectory } = useMemo(() => {
     const directory = new Map<string, {
@@ -429,18 +435,18 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
                 {(['All', 'Online', 'In person', 'Hybrid', 'TBA'] as const).map((format) => <button key={format} className={`filter-button ${formatFilter === format ? 'selected' : ''}`} onClick={() => setFormatFilter(format)} type="button">{format}</button>)}
               </div>
             </section>
-            <div className="schedule-note"><CalendarDays size={18} /><p><strong>{filteredTournaments.length} dates</strong> from the draft schedule. Fee and payment deadline fields are ready but intentionally unset.</p></div>
+            <div className="schedule-note"><CalendarDays size={18} /><p><strong>{filteredTournaments.length} dates</strong> from the draft schedule. Select any tournament to open its live intent, judge-capacity, and roster board.</p></div>
             {Object.entries(tournamentMonths).map(([month, events]) => (
               <section className="month-block" key={month}>
                 <header><h2>{month}</h2><span>{events.length} dates</span></header>
                 <div className="schedule-grid">
                   {events.map((event) => (
-                    <article className="schedule-card" key={event.id}>
+                    <button className="schedule-card" key={event.id} onClick={() => setSelectedTournament(event)} type="button">
                       <div className="schedule-card-top"><span className={`kind-chip ${event.kind === 'Scrimmage' ? 'soft' : ''}`}>{event.kind}</span><span>{event.dateLabel}</span></div>
                       <h3>{event.name}</h3>
                       <p><MapPin size={15} />{event.location}</p><p><Clock3 size={15} />{event.time}</p>
-                      <footer><span>{event.format}</span><b>Fee TBA · Due TBA</b></footer>
-                    </article>
+                      <footer><span>{event.format}</span><b>{intents.filter(item => item.tournamentId === event.id).length} intent {intents.filter(item => item.tournamentId === event.id).length === 1 ? 'entry' : 'entries'} · Open board →</b></footer>
+                    </button>
                   ))}
                 </div>
               </section>
@@ -495,7 +501,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
 
         {tab === 'data' ? (
           <div className="tab-content">
-            <section className="connection-hero"><div><p className="eyebrow">Automatic data path</p><h2>Forms in. Dashboard out.</h2><p>Membership, account setup, payments, and chaperone responses each use a private server endpoint. No Google API key is exposed in the browser.</p></div><span><Settings2 size={24} /> Four sources</span></section>
+            <section className="connection-hero"><div><p className="eyebrow">Automatic data path</p><h2>Forms in. Dashboard out.</h2><p>Membership, account setup, payments, chaperones, and tournament intent each use a private server endpoint. No Google API key is exposed in the browser.</p></div><span><Settings2 size={24} /> Five sources</span></section>
             <section className="connection-flow" aria-label="Proposed data connection">
               <article><span><FileSpreadsheet size={22} /></span><p>1 · Collect</p><h3>Google Form</h3><small>Free-text student name, payment details, receipt</small>{integrationLinks.paymentForm ? <a className="data-link" href={integrationLinks.paymentForm} target="_blank" rel="noreferrer">Open payment form <ArrowUpRight size={14} /></a> : <span className="data-link">Link configured privately</span>}</article><ChevronRight className="flow-arrow" />
               <article><span><Database size={22} /></span><p>2 · Store</p><h3>Google Sheet</h3><small>Seven response fields confirmed</small>{integrationLinks.paymentSheet ? <a className="data-link" href={integrationLinks.paymentSheet} target="_blank" rel="noreferrer">Open response Sheet <ArrowUpRight size={14} /></a> : <span className="data-link">Link configured privately</span>}</article><ChevronRight className="flow-arrow" />
@@ -505,6 +511,8 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
               <article><p className="eyebrow">2026–27 roster</p><h3>Membership responses</h3><strong>{activeMembers.length}</strong><span>active students after deduplication</span>{integrationLinks.membershipSheet ? <a className="data-link" href={integrationLinks.membershipSheet} target="_blank" rel="noreferrer">Open membership Sheet <ArrowUpRight size={14} /></a> : null}</article>
               <article><p className="eyebrow">Student accounts</p><h3>Tabroom + NSDA setup</h3><strong>{members.filter((member) => member.tabroomEmail || member.nsdaEmail).length}</strong><span>students with account details</span>{integrationLinks.setupSheet ? <a className="data-link" href={integrationLinks.setupSheet} target="_blank" rel="noreferrer">Open setup Sheet <ArrowUpRight size={14} /></a> : null}</article>
               <article><p className="eyebrow">Payment proof</p><h3>Receipt submissions</h3><strong>{payments.length}</strong><span>{matchedPayments.length} matched automatically</span>{integrationLinks.paymentSheet ? <a className="data-link" href={integrationLinks.paymentSheet} target="_blank" rel="noreferrer">Open payment Sheet <ArrowUpRight size={14} /></a> : null}</article>
+              <article><p className="eyebrow">Tournament intent</p><h3>Student registration</h3><strong>{intents.length}</strong><span>event entries connected to tournament boards</span>{integrationLinks.intentSheet ? <a className="data-link" href={integrationLinks.intentSheet} target="_blank" rel="noreferrer">Open intent Sheet <ArrowUpRight size={14} /></a> : null}</article>
+              <article><p className="eyebrow">Adult coverage</p><h3>Judge + chaperone sign-up</h3><strong>{chaperoneDirectory.length}</strong><span>deduplicated long-term volunteers</span>{integrationLinks.chaperoneSheet ? <a className="data-link" href={integrationLinks.chaperoneSheet} target="_blank" rel="noreferrer">Open chaperone Sheet <ArrowUpRight size={14} /></a> : null}</article>
             </section>
             <section className="setup-grid">
               <article><p className="eyebrow">Data rules</p><h3>Records stay useful</h3><ul><li><Check size={15} />Active students come from the 2026–27 form</li><li><Check size={15} />Inactive students remain searchable</li><li><Check size={15} />Parents stay linked for future chaperoning</li><li><Check size={15} />Tabroom and NSDA details remain login-only</li></ul></article>
@@ -551,6 +559,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
           </aside>
         </div>
       ) : null}
+      {selectedTournament ? <TournamentPlanner tournament={selectedTournament} tournaments={tournaments} intents={intents} chaperones={chaperones} members={members} initialPlan={tournamentPlans.find(plan => plan.tournamentId === selectedTournament.id) ?? null} onClose={() => setSelectedTournament(null)} /> : null}
     </main>
   );
 }

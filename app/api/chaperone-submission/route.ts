@@ -9,6 +9,10 @@ type SubmissionBody = {
   sourceRow?: unknown;
   timestamp?: unknown;
   parentName?: unknown;
+  parentEmail?: unknown;
+  parentPhone?: unknown;
+  desiredEvent?: unknown;
+  transport?: unknown;
   studentName?: unknown;
   tournamentNames?: unknown;
   confirmedTournamentNames?: unknown;
@@ -62,6 +66,10 @@ async function prepareSubmission(body: SubmissionBody): Promise<SaveChaperoneInp
     sourceRow: typeof body.sourceRow === 'number' && Number.isInteger(body.sourceRow) ? body.sourceRow : null,
     formTimestamp: parsedTimestamp.toISOString(),
     parentName,
+    parentEmail: cleanText(body.parentEmail, 240),
+    parentPhone: cleanText(body.parentPhone, 80),
+    desiredEvent: cleanText(body.desiredEvent, 240),
+    transport: cleanText(body.transport, 160),
     studentNameRaw: studentName,
     memberId: rosterMatch.status === 'matched' ? rosterMatch.member.id : null,
     matchedStudentName: rosterMatch.status === 'matched' ? rosterMatch.member.name : null,
