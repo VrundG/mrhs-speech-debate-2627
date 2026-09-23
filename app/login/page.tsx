@@ -12,7 +12,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <main className="login-shell">
       <section className="login-brand" aria-label="Marvin Ridge Speech and Debate">
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">MR</span>
+          <img className="brand-mark" src="/marvin-logo.jpeg" alt="Marvin Ridge Mavericks" width={158} height={158} />
           <span>Speech &amp; Debate</span>
         </div>
         <div className="login-statement">

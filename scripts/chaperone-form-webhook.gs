@@ -66,16 +66,13 @@ function postChaperones(submissions) {
   const properties = PropertiesService.getScriptProperties();
   const endpoint = properties.getProperty('MRHS_CHAPERONE_ENDPOINT');
   const secret = properties.getProperty('MRHS_WEBHOOK_SECRET');
-  const bypassToken = properties.getProperty('MRHS_SITES_BYPASS_TOKEN');
   if (!endpoint) throw new Error('Add MRHS_CHAPERONE_ENDPOINT in Apps Script project settings.');
   if (!secret) throw new Error('Add MRHS_WEBHOOK_SECRET in Apps Script project settings.');
-  const headers = { Authorization: 'Bearer ' + secret };
-  if (bypassToken) headers['OAI-Sites-Authorization'] = 'Bearer ' + bypassToken;
 
   const response = UrlFetchApp.fetch(endpoint, {
     method: 'post',
     contentType: 'application/json',
-    headers: headers,
+    headers: { Authorization: 'Bearer ' + secret },
     payload: JSON.stringify({ submissions: submissions }),
     muteHttpExceptions: true,
   });

@@ -1,12 +1,14 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { siteUrl } from './site-url';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.SITE_URL ?? 'http://localhost:3000'),
+  metadataBase: new URL(siteUrl()),
   title: {
     default: 'MRHS Speech & Debate Command Center',
     template: '%s · MRHS Speech & Debate',
   },
+  icons: { icon: '/marvin-logo.jpeg', apple: '/marvin-logo.jpeg' },
   description: 'Private membership, tournament, and payment operations for Marvin Ridge High School Speech & Debate.',
   alternates: { canonical: '/' },
   robots: { index: false, follow: false },

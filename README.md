@@ -13,6 +13,8 @@ The dashboard requires server-side credentials. Configure these as encrypted Clo
 - `MRHS_FORM_WEBHOOK_SECRET`
 - `MRHS_PAYMENT_FORM_URL`
 - `MRHS_PAYMENT_SHEET_URL`
+- `MRHS_MEMBERSHIP_SHEET_URL`
+- `MRHS_SETUP_SHEET_URL`
 
 Configure these non-secret build variables:
 
@@ -29,4 +31,6 @@ Run `pnpm deploy` after a validated change to publish it to the existing Cloudfl
 
 ## Google Forms
 
-The Apps Script helpers in `scripts/` forward payment and chaperone submissions to the dashboard. Store the matching webhook secret and deployment-specific endpoints in Apps Script Properties as `MRHS_WEBHOOK_SECRET`, `MRHS_PAYMENT_ENDPOINT`, and `MRHS_CHAPERONE_ENDPOINT`; do not paste them into source code.
+The Apps Script helpers in `scripts/` forward payment, membership, member-account, and chaperone submissions to the dashboard. Store the matching webhook secret and deployment-specific endpoints in Apps Script Properties as `MRHS_WEBHOOK_SECRET`, `MRHS_PAYMENT_ENDPOINT`, `MRHS_MEMBERSHIP_ENDPOINT`, `MRHS_SETUP_ENDPOINT`, and `MRHS_CHAPERONE_ENDPOINT`; do not paste them into source code.
+
+Each helper includes a one-time `syncAll...Rows` function for importing existing responses and an install function for future form submissions.

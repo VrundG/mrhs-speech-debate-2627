@@ -26,11 +26,13 @@ import type { Member } from '../db/members';
 import { logout } from './actions';
 import { resolveRosterName } from './lib/name-matcher';
 
-type Tab = 'overview' | 'members' | 'tournaments' | 'payments' | 'late' | 'data';
+type Tab = 'overview' | 'members' | 'chaperones' | 'tournaments' | 'payments' | 'late' | 'data';
 type ChaperoneFilter = 'All' | 'Has chaperone' | 'No chaperone';
 type VolunteerFilter = 'All approval' | 'UCPS approved' | 'Approval needed' | 'Not recorded';
 type ServiceFilter = 'All service' | 'Signed up' | 'Verified service' | 'No verified service';
 type MemberSort = 'Name A–Z' | 'Most tournament history' | 'Most chaperoned';
+type ChaperoneSort = 'Name A–Z' | 'Most sign-ups' | 'Most verified';
+type SeasonFilter = '2026–27 active' | 'All records' | 'Inactive / alumni';
 type ChaperoneRelationship = {
   parentName: string;
   tournamentNames: string[];
@@ -39,15 +41,29 @@ type ChaperoneRelationship = {
   confirmedCount: number;
   approvedVolunteer: 'yes' | 'no' | 'unknown';
 };
+type ChaperoneDirectoryEntry = ChaperoneRelationship & { memberIds: string[] };
 
 type IntegrationLinks = {
   paymentForm: string | null;
   paymentSheet: string | null;
+  membershipSheet: string | null;
+  setupSheet: string | null;
+};
+
+type AccountSnapshot = {
+  throughDate: string;
+  transactionCount: number;
+  received: number;
+  expended: number;
+  netChange: number;
+  openingBalance: number | null;
 };
 
 const tabLabels: Record<Tab, string> = {
-  overview: 'Overview', members: 'Members', tournaments: 'Tournaments', payments: 'Payments', late: 'Late payments', data: 'Data setup',
+  overview: 'Overview', members: 'Members', chaperones: 'Chaperones', tournaments: 'Tournaments', payments: 'Payments', late: 'Late payments', data: 'Data setup',
 };
+
+const chaperoneFormUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSeoBgObBflXT67maLoqMM1juEjIAUxKpZ7zk3T6pVNMe3_YHA/viewform';
 
 function monthHeading(date: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
@@ -68,7 +84,15 @@ function parentKey(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ');
 }
 
-export function DashboardApp({ members, tournaments, payments, chaperones, integrationLinks }: { members: Member[]; tournaments: Tournament[]; payments: PaymentSubmission[]; chaperones: ChaperoneSubmission[]; integrationLinks: IntegrationLinks }) {
+function currency(value: number) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+}
+
+function isHttpsLink(value: string | null): value is string {
+  return Boolean(value && /^https:\/\//i.test(value));
+}
+
+export function DashboardApp({ members, tournaments, payments, chaperones, integrationLinks, accountSnapshot }: { members: Member[]; tournaments: Tournament[]; payments: PaymentSubmission[]; chaperones: ChaperoneSubmission[]; integrationLinks: IntegrationLinks; accountSnapshot: AccountSnapshot }) {
   const [tab, setTab] = useState<Tab>('overview');
   const [memberSearch, setMemberSearch] = useState('');
   const [historyOnly, setHistoryOnly] = useState(false);
@@ -77,8 +101,13 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
   const [serviceFilter, setServiceFilter] = useState<ServiceFilter>('All service');
   const [membershipFilter, setMembershipFilter] = useState<'All dues' | 'Paid' | 'Unpaid'>('All dues');
   const [memberTypeFilter, setMemberTypeFilter] = useState<'All members' | Member['memberType']>('All members');
+  const [seasonFilter, setSeasonFilter] = useState<SeasonFilter>('2026–27 active');
   const [memberSort, setMemberSort] = useState<MemberSort>('Name A–Z');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [chaperoneSearch, setChaperoneSearch] = useState('');
+  const [directoryVolunteerFilter, setDirectoryVolunteerFilter] = useState<VolunteerFilter>('All approval');
+  const [directoryServiceFilter, setDirectoryServiceFilter] = useState<ServiceFilter>('All service');
+  const [chaperoneSort, setChaperoneSort] = useState<ChaperoneSort>('Name A–Z');
   const [formatFilter, setFormatFilter] = useState<'All' | Tournament['format']>('All');
   const [scheduleSearch, setScheduleSearch] = useState('');
   const [nameTest, setNameTest] = useState('');
@@ -111,7 +140,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
       record.approvedVolunteer = approvedVolunteer;
       directory.set(key, record);
     }
-    const relationships = Array.from(directory.values()).map((record): ChaperoneRelationship & { memberIds: string[] } => ({
+    const relationships = Array.from(directory.values()).map((record): ChaperoneDirectoryEntry => ({
       parentName: record.parentName,
       tournamentNames: Array.from(record.tournamentNames),
       confirmedTournamentNames: Array.from(record.confirmedTournamentNames),
@@ -127,6 +156,30 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
     return { chaperonesByMember: grouped, chaperoneDirectory: relationships };
   }, [chaperones]);
 
+  const membersById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
+
+  const filteredChaperones = useMemo(() => {
+    const query = chaperoneSearch.trim().toLowerCase();
+    const result = chaperoneDirectory.filter((chaperone) => {
+      const linkedNames = chaperone.memberIds.map((memberId) => membersById.get(memberId)?.name ?? '').filter(Boolean);
+      const searchText = [chaperone.parentName, ...linkedNames, ...chaperone.tournamentNames].join(' ').toLowerCase();
+      const approvalMatch = directoryVolunteerFilter === 'All approval'
+        || (directoryVolunteerFilter === 'UCPS approved' && chaperone.approvedVolunteer === 'yes')
+        || (directoryVolunteerFilter === 'Approval needed' && chaperone.approvedVolunteer === 'no')
+        || (directoryVolunteerFilter === 'Not recorded' && chaperone.approvedVolunteer === 'unknown');
+      const serviceMatch = directoryServiceFilter === 'All service'
+        || (directoryServiceFilter === 'Signed up' && chaperone.signupCount > 0)
+        || (directoryServiceFilter === 'Verified service' && chaperone.confirmedCount > 0)
+        || (directoryServiceFilter === 'No verified service' && chaperone.confirmedCount === 0);
+      return (!query || searchText.includes(query)) && approvalMatch && serviceMatch;
+    });
+    return result.sort((a, b) => {
+      if (chaperoneSort === 'Most sign-ups') return b.signupCount - a.signupCount || a.parentName.localeCompare(b.parentName);
+      if (chaperoneSort === 'Most verified') return b.confirmedCount - a.confirmedCount || b.signupCount - a.signupCount || a.parentName.localeCompare(b.parentName);
+      return a.parentName.localeCompare(b.parentName);
+    });
+  }, [chaperoneDirectory, chaperoneSearch, chaperoneSort, directoryServiceFilter, directoryVolunteerFilter, membersById]);
+
   const filteredMembers = useMemo(() => {
     const query = memberSearch.trim().toLowerCase();
     const result = members.filter((member) => {
@@ -141,6 +194,9 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
         || (serviceFilter === 'No verified service' && !linked.some((item) => item.confirmedCount > 0));
       return (
       (!query || member.name.toLowerCase().includes(query)) &&
+      (seasonFilter === 'All records'
+        || (seasonFilter === '2026–27 active' && member.activeSeason === '2026-27')
+        || (seasonFilter === 'Inactive / alumni' && member.activeSeason !== '2026-27')) &&
       (!historyOnly || member.tournamentHistory.length > 0) &&
       (membershipFilter === 'All dues' || member.membershipStatus === membershipFilter) &&
       (memberTypeFilter === 'All members' || member.memberType === memberTypeFilter) &&
@@ -156,7 +212,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
       }
       return a.name.localeCompare(b.name);
     });
-  }, [chaperoneFilter, chaperonesByMember, historyOnly, memberSearch, memberSort, memberTypeFilter, membershipFilter, members, serviceFilter, volunteerFilter]);
+  }, [chaperoneFilter, chaperonesByMember, historyOnly, memberSearch, memberSort, memberTypeFilter, membershipFilter, members, seasonFilter, serviceFilter, volunteerFilter]);
 
   const filteredTournaments = useMemo(() => {
     const query = scheduleSearch.trim().toLowerCase();
@@ -173,14 +229,27 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
   }, [filteredTournaments]);
 
   const nextEvents = tournaments.slice(0, 4);
-  const withHistory = members.filter((member) => member.tournamentHistory.length > 0).length;
+  const activeMembers = members.filter((member) => member.activeSeason === '2026-27');
+  const inactiveMembers = members.filter((member) => member.activeSeason !== '2026-27');
+  const paidMembers = activeMembers.filter((member) => member.membershipStatus === 'Paid');
+  const returningActive = activeMembers.filter((member) => member.memberType === 'Returning member').length;
+  const newActive = activeMembers.filter((member) => member.memberType === 'New member').length;
+  const projectedDues = activeMembers.reduce((sum, member) => sum + member.membershipFee, 0);
+  const collectedDues = paidMembers.reduce((sum, member) => sum + member.membershipFee, 0);
+  const outstandingDues = projectedDues - collectedDues;
+  const collectionPercent = projectedDues ? Math.round((collectedDues / projectedDues) * 100) : 0;
+  const withHistory = activeMembers.filter((member) => member.tournamentHistory.length > 0).length;
   const withChaperone = members.filter((member) => chaperonesByMember[member.id]?.length).length;
   const withVerifiedChaperone = members.filter((member) => chaperonesByMember[member.id]?.some((item) => item.confirmedCount > 0)).length;
   const chaperoneSignups = chaperoneDirectory.reduce((sum, item) => sum + item.signupCount, 0);
   const verifiedChaperoneAppearances = chaperoneDirectory.reduce((sum, item) => sum + item.confirmedCount, 0);
+  const approvedChaperones = chaperoneDirectory.filter((item) => item.approvedVolunteer === 'yes').length;
   const matchedPayments = payments.filter((payment) => payment.studentMatchStatus === 'matched' && ['matched', 'not_applicable'].includes(payment.tournamentMatchStatus));
   const reviewPayments = payments.filter((payment) => payment.studentMatchStatus !== 'matched' || ['review', 'unmatched'].includes(payment.tournamentMatchStatus));
   const latePayments = payments.filter((payment) => payment.paymentType.toLowerCase().includes('late'));
+  const currentAccountBalance = accountSnapshot.openingBalance === null
+    ? null
+    : accountSnapshot.openingBalance + accountSnapshot.netChange;
   const nameMatch = useMemo(() => resolveRosterName(nameTest, members), [members, nameTest]);
 
   const openTab = (nextTab: Tab) => {
@@ -193,13 +262,13 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
     <main className="app-frame">
       <aside className="sidebar">
         <div className="brand-lockup dark-lockup">
-          <span className="brand-mark" aria-hidden="true">MR</span>
+          <img className="brand-mark" src="/marvin-logo.jpeg" alt="Marvin Ridge Mavericks" width={158} height={158} />
           <span>Speech &amp; Debate</span>
         </div>
         <nav aria-label="Dashboard navigation">
           {(Object.keys(tabLabels) as Tab[]).map((item) => (
             <button key={item} className={`nav-link ${tab === item ? 'active' : ''}`} onClick={() => openTab(item)} type="button">
-              {tabLabels[item]} {item === 'members' ? <span>{members.length}</span> : null}
+              {tabLabels[item]} {item === 'members' ? <span>{activeMembers.length}</span> : item === 'chaperones' ? <span>{chaperoneDirectory.length}</span> : null}
             </button>
           ))}
         </nav>
@@ -222,9 +291,16 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
         {tab === 'overview' ? (
           <div className="tab-content">
             <section className="status-grid" aria-label="Season status">
-              <article className="metric-card metric-featured"><p>Returning roster</p><strong>{members.length}</strong><span>Duplicates removed from the ledger</span></article>
-              <article className="metric-card"><p>Membership paid</p><strong>0 <small>/ {members.length}</small></strong><span>Returning fee: $45</span></article>
+              <article className="metric-card metric-featured"><p>2026–27 roster</p><strong>{activeMembers.length}</strong><span>{returningActive} returning · {newActive} new</span></article>
+              <article className="metric-card"><p>Membership paid</p><strong>{paidMembers.length} <small>/ {activeMembers.length}</small></strong><span>{currency(collectedDues)} collected</span></article>
               <article className="metric-card"><p>Receipts received</p><strong>{payments.length}</strong><span>{matchedPayments.length} matched · {reviewPayments.length} need review</span></article>
+              <article className="metric-card"><p>Account net activity</p><strong className="money-metric">{currency(accountSnapshot.netChange)}</strong><span>{currency(accountSnapshot.received)} received · {currency(accountSnapshot.expended)} spent through Sep. 17</span></article>
+            </section>
+
+            <section className="account-reconciliation">
+              <div><p className="eyebrow">Account reconciliation</p><h2>{currentAccountBalance === null ? 'Beginning balance needed' : currency(currentAccountBalance)}</h2></div>
+              <dl><div><dt>Transactions</dt><dd>{accountSnapshot.transactionCount}</dd></div><div><dt>Net change</dt><dd>{currency(accountSnapshot.netChange)}</dd></div><div><dt>Through</dt><dd>September 17, 2026</dd></div></dl>
+              <p>The CSV proves the account changed by <strong>{currency(accountSnapshot.netChange)}</strong> during its date range. A beginning balance is required to state the current cash balance without guessing.</p>
             </section>
 
             <section className="overview-grid">
@@ -250,7 +326,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
               </div>
             </section>
 
-            <section className="history-note"><History size={19} /><div><strong>{withHistory} returning members have recorded tournament history.</strong><p>The payment ledger identifies prior tournaments, but it does not contain each student’s competitive category. Those event fields are left unassigned instead of guessed.</p></div></section>
+            <section className="history-note"><History size={19} /><div><strong>{withHistory} active members have recorded tournament history.</strong><p>The current form supplies each student’s prior events. Older tournament history remains attached even when a student is inactive.</p></div></section>
           </div>
         ) : null}
 
@@ -259,7 +335,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
             <section className="member-command">
               <div className="member-command-copy"><p className="eyebrow">Roster intelligence</p><h2>Every student.<br />Every support signal.</h2><p>Find dues, experience, parent coverage, volunteer approval, and verified chaperone service without touching the underlying Sheet.</p></div>
               <div className="member-command-metrics" aria-label="Member and chaperone totals">
-                <article><span>Students</span><strong>{members.length}</strong><small>returning roster</small></article>
+                <article><span>Active students</span><strong>{activeMembers.length}</strong><small>{inactiveMembers.length} retained alumni records</small></article>
                 <article><span>Parent records</span><strong>{chaperoneDirectory.length}</strong><small>{chaperoneSignups} tournament sign-ups</small></article>
                 <article><span>Verified</span><strong>{verifiedChaperoneAppearances}</strong><small>{withVerifiedChaperone} students supported</small></article>
               </div>
@@ -267,10 +343,11 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
             </section>
 
             <section className="member-filter-panel" aria-label="Member filters">
-              <div className="filter-panel-heading"><span><SlidersHorizontal size={16} /> Filter roster</span><button type="button" onClick={() => { setMemberSearch(''); setHistoryOnly(false); setChaperoneFilter('All'); setVolunteerFilter('All approval'); setServiceFilter('All service'); setMembershipFilter('All dues'); setMemberTypeFilter('All members'); setMemberSort('Name A–Z'); }}>Reset all</button></div>
+              <div className="filter-panel-heading"><span><SlidersHorizontal size={16} /> Filter roster</span><button type="button" onClick={() => { setMemberSearch(''); setHistoryOnly(false); setChaperoneFilter('All'); setVolunteerFilter('All approval'); setServiceFilter('All service'); setMembershipFilter('All dues'); setMemberTypeFilter('All members'); setSeasonFilter('2026–27 active'); setMemberSort('Name A–Z'); }}>Reset all</button></div>
               <div className="member-filter-grid">
-                <label className="search-field member-search"><Search size={17} /><input value={memberSearch} onChange={(event) => setMemberSearch(event.target.value)} placeholder={`Search ${members.length} students`} aria-label="Search students" /></label>
-                <label className="select-filter"><span>Member type</span><select value={memberTypeFilter} onChange={(event) => setMemberTypeFilter(event.target.value as typeof memberTypeFilter)}><option>All members</option><option>Returning member</option><option>New member</option></select></label>
+                <label className="search-field member-search"><Search size={17} /><input value={memberSearch} onChange={(event) => setMemberSearch(event.target.value)} placeholder={`Search ${members.length} records`} aria-label="Search students" /></label>
+                <label className="select-filter"><span>Season</span><select value={seasonFilter} onChange={(event) => setSeasonFilter(event.target.value as SeasonFilter)}><option>2026–27 active</option><option>All records</option><option>Inactive / alumni</option></select></label>
+                <label className="select-filter"><span>Payment type</span><select value={memberTypeFilter} onChange={(event) => setMemberTypeFilter(event.target.value as typeof memberTypeFilter)}><option>All members</option><option value="Returning member">Returning / renewal ($45)</option><option value="New member">New / initial ($65)</option></select></label>
                 <label className="select-filter"><span>Dues</span><select value={membershipFilter} onChange={(event) => setMembershipFilter(event.target.value as typeof membershipFilter)}><option>All dues</option><option>Paid</option><option>Unpaid</option></select></label>
                 <label className="select-filter"><span>Parent coverage</span><select value={chaperoneFilter} onChange={(event) => setChaperoneFilter(event.target.value as ChaperoneFilter)}><option>All</option><option>Has chaperone</option><option>No chaperone</option></select></label>
                 <label className="select-filter"><span>Volunteer approval</span><select value={volunteerFilter} onChange={(event) => setVolunteerFilter(event.target.value as VolunteerFilter)}><option>All approval</option><option>UCPS approved</option><option>Approval needed</option><option>Not recorded</option></select></label>
@@ -280,12 +357,12 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
               <button className={`filter-button history-filter ${historyOnly ? 'selected' : ''}`} onClick={() => setHistoryOnly((value) => !value)} type="button"><History size={15} /> Has tournament history</button>
             </section>
 
-            <div className="table-summary roster-summary"><p><strong>{filteredMembers.length}</strong> of {members.length} students</p><span>{withChaperone} have a linked parent · {verifiedChaperoneAppearances} verified service appearance{verifiedChaperoneAppearances === 1 ? '' : 's'}</span></div>
+            <div className="table-summary roster-summary"><p><strong>{filteredMembers.length}</strong> of {members.length} records</p><span>{activeMembers.length} active in 2026–27 · {withChaperone} have a linked parent</span></div>
             <div className="member-table" aria-label="Member roster">
               <div className="member-row table-head"><span>Student</span><span>Member</span><span>2026–27 dues</span><span>Competition</span><span>Parent support</span><span aria-hidden="true" /></div>
               {filteredMembers.map((member) => (
                 <button className="member-row" key={member.id} onClick={() => setSelectedMember(member)} type="button">
-                  <span className="member-name"><i>{member.name.split(' ').map((part) => part[0]).slice(0, 2).join('')}</i><span className="member-identity"><b>{member.name}</b><small>{member.role}</small></span></span>
+                  <span className="member-name"><i>{member.name.split(' ').map((part) => part[0]).slice(0, 2).join('')}</i><span className="member-identity"><b>{member.name}</b><small>{member.activeSeason === '2026-27' ? `Active 2026–27${member.graduationYear ? ` · Class of ${member.graduationYear}` : ''}` : 'Inactive / alumni record'}</small></span></span>
                   <span>{member.memberType}</span><span><em className={`status-dot ${member.membershipStatus.toLowerCase()}`} /> ${member.membershipFee} {member.membershipStatus.toLowerCase()}</span><span><strong className="table-number">{member.tournamentHistory.length}</strong> tournaments</span>
                   <span className="chaperone-cell">{chaperonesByMember[member.id]?.length ? <><strong>{chaperonesByMember[member.id].map((item) => item.parentName).join(', ')}</strong><small>{chaperonesByMember[member.id].reduce((sum, item) => sum + item.signupCount, 0)} signed up · {chaperonesByMember[member.id].reduce((sum, item) => sum + item.confirmedCount, 0)} verified</small></> : <><strong>Needs chaperone</strong><small>No parent response linked</small></>}</span><ChevronRight size={16} />
                 </button>
@@ -293,6 +370,54 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
               {!filteredMembers.length ? <div className="empty-row">No students match those filters.</div> : null}
             </div>
             <div className="verification-note"><ShieldCheck size={17} /><p><strong>Verified service is counted by unique tournament.</strong> Add a <b>Confirmed Tournaments</b> column to the chaperone response Sheet; this dashboard will never count a sign-up as attendance automatically.</p></div>
+          </div>
+        ) : null}
+
+        {tab === 'chaperones' ? (
+          <div className="tab-content">
+            <section className="member-command chaperone-command">
+              <div className="member-command-copy">
+                <p className="eyebrow">Volunteer directory</p>
+                <h2>Staff the next trip.<br />In minutes.</h2>
+                <p>Find approved adults, see the students they support, and check their judging and chaperone history from one list.</p>
+                <a className="hero-link" href={chaperoneFormUrl} target="_blank" rel="noreferrer">Open parent sign-up form <ArrowUpRight size={15} /></a>
+              </div>
+              <div className="member-command-metrics" aria-label="Chaperone directory totals">
+                <article><span>Parent records</span><strong>{chaperoneDirectory.length}</strong><small>deduplicated volunteers</small></article>
+                <article><span>UCPS approved</span><strong>{approvedChaperones}</strong><small>ready to assign</small></article>
+                <article><span>Trip commitments</span><strong>{chaperoneSignups}</strong><small>{verifiedChaperoneAppearances} verified service</small></article>
+              </div>
+              <div className="member-command-art" aria-hidden="true" />
+            </section>
+
+            <section className="member-filter-panel" aria-label="Chaperone filters">
+              <div className="filter-panel-heading"><span><SlidersHorizontal size={16} /> Filter chaperones</span><button type="button" onClick={() => { setChaperoneSearch(''); setDirectoryVolunteerFilter('All approval'); setDirectoryServiceFilter('All service'); setChaperoneSort('Name A–Z'); }}>Reset all</button></div>
+              <div className="chaperone-filter-grid">
+                <label className="search-field member-search"><Search size={17} /><input value={chaperoneSearch} onChange={(event) => setChaperoneSearch(event.target.value)} placeholder={`Search ${chaperoneDirectory.length} parents`} aria-label="Search chaperones" /></label>
+                <label className="select-filter"><span>Volunteer approval</span><select value={directoryVolunteerFilter} onChange={(event) => setDirectoryVolunteerFilter(event.target.value as VolunteerFilter)}><option>All approval</option><option>UCPS approved</option><option>Approval needed</option><option>Not recorded</option></select></label>
+                <label className="select-filter"><span>Chaperone service</span><select value={directoryServiceFilter} onChange={(event) => setDirectoryServiceFilter(event.target.value as ServiceFilter)}><option>All service</option><option>Signed up</option><option>Verified service</option><option>No verified service</option></select></label>
+                <label className="select-filter"><span>Sort by</span><select value={chaperoneSort} onChange={(event) => setChaperoneSort(event.target.value as ChaperoneSort)}><option>Name A–Z</option><option>Most sign-ups</option><option>Most verified</option></select></label>
+              </div>
+            </section>
+
+            <div className="table-summary roster-summary"><p><strong>{filteredChaperones.length}</strong> of {chaperoneDirectory.length} chaperones</p><span>{approvedChaperones} UCPS approved · {chaperoneSignups} tournament commitments</span></div>
+            <div className="chaperone-directory" aria-label="Chaperone directory">
+              <div className="chaperone-directory-row table-head"><span>Chaperone</span><span>UCPS status</span><span>Linked student</span><span>Tournament commitments</span><span>Verified service</span></div>
+              {filteredChaperones.map((chaperone) => {
+                const linkedMembers = chaperone.memberIds.map((memberId) => membersById.get(memberId)).filter((member): member is Member => Boolean(member));
+                return (
+                  <article className="chaperone-directory-row" key={parentKey(chaperone.parentName)}>
+                    <span className="volunteer-name"><i>{chaperone.parentName.split(' ').map((part) => part[0]).slice(0, 2).join('')}</i><b>{chaperone.parentName}</b></span>
+                    <span><em className={`approval-badge ${chaperone.approvedVolunteer}`}>{chaperone.approvedVolunteer === 'yes' ? 'UCPS approved' : chaperone.approvedVolunteer === 'no' ? 'Approval needed' : 'Not recorded'}</em></span>
+                    <span className="linked-students">{linkedMembers.map((member) => <button key={member.id} type="button" onClick={() => setSelectedMember(member)}>{member.name}<ChevronRight size={13} /></button>)}</span>
+                    <span className="commitment-cell"><strong>{chaperone.signupCount}</strong><small>{chaperone.tournamentNames.length ? `${chaperone.tournamentNames.slice(0, 2).join(' · ')}${chaperone.tournamentNames.length > 2 ? ` · +${chaperone.tournamentNames.length - 2}` : ''}` : 'No tournament recorded'}</small></span>
+                    <span className="verified-cell"><strong>{chaperone.confirmedCount}</strong><small>{chaperone.confirmedTournamentNames.length ? chaperone.confirmedTournamentNames.slice(0, 2).join(' · ') : 'Awaiting confirmation'}</small></span>
+                  </article>
+                );
+              })}
+              {!filteredChaperones.length ? <div className="empty-row">No chaperones match those filters.</div> : null}
+            </div>
+            <div className="verification-note"><ShieldCheck size={17} /><p><strong>Approval and service are kept separate.</strong> “UCPS approved” comes from the parent form. Verified service counts only tournaments listed in the Sheet’s <b>Confirmed Tournaments</b> column.</p></div>
           </div>
         ) : null}
 
@@ -326,13 +451,17 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
         {tab === 'payments' ? (
           <div className="tab-content">
             <section className="payment-hero">
-              <div><p className="eyebrow">Projected membership balance</p><strong>$7,110</strong><span>{members.length} returning members × $45</span></div>
+              <div><p className="eyebrow">Projected membership dues</p><strong>{currency(projectedDues)}</strong><span>{returningActive} returning × $45 · {newActive} new × $65</span></div>
               <div className="fee-rules"><p>2026–27 fee rules</p><dl><div><dt>Returning student</dt><dd>$45</dd></div><div><dt>New student</dt><dd>$65</dd></div></dl></div>
             </section>
             <section className="dashboard-section">
-              <div className="section-title"><div><p className="eyebrow">Membership</p><h2>Current collection status</h2></div><span className="status-pill">0% collected</span></div>
-              <div className="progress-track" aria-label="Zero percent of membership fees collected"><span style={{ width: '0%' }} /></div>
-              <div className="payment-stats"><article><span>Paid</span><strong>$0</strong></article><article><span>Outstanding</span><strong>$7,110</strong></article><article><span>Late</span><strong>$0</strong></article></div>
+              <div className="section-title"><div><p className="eyebrow">Membership</p><h2>Current collection status</h2></div><span className="status-pill">{collectionPercent}% collected</span></div>
+              <div className="progress-track" aria-label={`${collectionPercent} percent of membership fees collected`}><span style={{ width: `${collectionPercent}%` }} /></div>
+              <div className="payment-stats"><article><span>Paid</span><strong>{currency(collectedDues)}</strong></article><article><span>Outstanding</span><strong>{currency(outstandingDues)}</strong></article><article><span>Late submissions</span><strong>{latePayments.length}</strong></article></div>
+            </section>
+            <section className="dashboard-section account-ledger-strip">
+              <div><p className="eyebrow">School account through Sep. 17</p><h2>{currentAccountBalance === null ? 'Current balance pending' : currency(currentAccountBalance)}</h2><p>Received {currency(accountSnapshot.received)} · Expended {currency(accountSnapshot.expended)} · Net change {currency(accountSnapshot.netChange)}</p></div>
+              <span>{accountSnapshot.transactionCount} ledger transactions</span>
             </section>
             <section className="dashboard-section compact-section">
               <div className="section-title"><div><p className="eyebrow">Tournament entry</p><h2>Waiting for fee amounts</h2></div></div>
@@ -346,7 +475,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
                     <div><strong>{payment.matchedStudentName ?? payment.studentNameRaw}</strong><small>{readableSubmissionDate(payment.formTimestamp)}</small></div>
                     <div><span>{payment.matchedTournamentName ?? payment.tournamentNameRaw ?? payment.paymentFor}</span><small>{payment.paymentType}</small></div>
                     <span className={`match-chip ${payment.studentMatchStatus === 'matched' && ['matched', 'not_applicable'].includes(payment.tournamentMatchStatus) ? 'good' : 'review'}`}>{payment.studentMatchStatus === 'matched' && ['matched', 'not_applicable'].includes(payment.tournamentMatchStatus) ? 'Matched' : 'Review'}</span>
-                    {payment.receiptUrl ? <a href={payment.receiptUrl} target="_blank" rel="noreferrer">Receipt <ArrowUpRight size={14} /></a> : <span className="receipt-missing">No receipt</span>}
+                    {isHttpsLink(payment.receiptUrl) ? <a href={payment.receiptUrl} target="_blank" rel="noreferrer">Receipt <ArrowUpRight size={14} /></a> : payment.receiptUrl ? <span className="receipt-missing">Receipt recorded</span> : <span className="receipt-missing">No receipt</span>}
                   </article>
                 ))}
               </div> : <div className="inline-empty"><p>No form submissions yet.</p><span>The first receipt will appear here automatically after the Sheet trigger is installed.</span></div>}
@@ -366,15 +495,20 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
 
         {tab === 'data' ? (
           <div className="tab-content">
-            <section className="connection-hero"><div><p className="eyebrow">Simple automation path</p><h2>Google Form in. Dashboard out.</h2><p>This setup avoids putting a Google API key in the browser. The linked school Sheet remains the source, while the dashboard stores only the fields needed for payment matching.</p></div><span><Settings2 size={24} /> Endpoint ready</span></section>
+            <section className="connection-hero"><div><p className="eyebrow">Automatic data path</p><h2>Forms in. Dashboard out.</h2><p>Membership, account setup, payments, and chaperone responses each use a private server endpoint. No Google API key is exposed in the browser.</p></div><span><Settings2 size={24} /> Four sources</span></section>
             <section className="connection-flow" aria-label="Proposed data connection">
               <article><span><FileSpreadsheet size={22} /></span><p>1 · Collect</p><h3>Google Form</h3><small>Free-text student name, payment details, receipt</small>{integrationLinks.paymentForm ? <a className="data-link" href={integrationLinks.paymentForm} target="_blank" rel="noreferrer">Open payment form <ArrowUpRight size={14} /></a> : <span className="data-link">Link configured privately</span>}</article><ChevronRight className="flow-arrow" />
               <article><span><Database size={22} /></span><p>2 · Store</p><h3>Google Sheet</h3><small>Seven response fields confirmed</small>{integrationLinks.paymentSheet ? <a className="data-link" href={integrationLinks.paymentSheet} target="_blank" rel="noreferrer">Open response Sheet <ArrowUpRight size={14} /></a> : <span className="data-link">Link configured privately</span>}</article><ChevronRight className="flow-arrow" />
               <article><span><WalletCards size={22} /></span><p>3 · Reflect</p><h3>This dashboard</h3><small>Paid, unpaid, late, and history</small></article>
             </section>
+            <section className="source-grid" aria-label="Connected response sheets">
+              <article><p className="eyebrow">2026–27 roster</p><h3>Membership responses</h3><strong>{activeMembers.length}</strong><span>active students after deduplication</span>{integrationLinks.membershipSheet ? <a className="data-link" href={integrationLinks.membershipSheet} target="_blank" rel="noreferrer">Open membership Sheet <ArrowUpRight size={14} /></a> : null}</article>
+              <article><p className="eyebrow">Student accounts</p><h3>Tabroom + NSDA setup</h3><strong>{members.filter((member) => member.tabroomEmail || member.nsdaEmail).length}</strong><span>students with account details</span>{integrationLinks.setupSheet ? <a className="data-link" href={integrationLinks.setupSheet} target="_blank" rel="noreferrer">Open setup Sheet <ArrowUpRight size={14} /></a> : null}</article>
+              <article><p className="eyebrow">Payment proof</p><h3>Receipt submissions</h3><strong>{payments.length}</strong><span>{matchedPayments.length} matched automatically</span>{integrationLinks.paymentSheet ? <a className="data-link" href={integrationLinks.paymentSheet} target="_blank" rel="noreferrer">Open payment Sheet <ArrowUpRight size={14} /></a> : null}</article>
+            </section>
             <section className="setup-grid">
-              <article><p className="eyebrow">Already done</p><h3>Clean roster foundation</h3><ul><li><Check size={15} />158 unique returning students</li><li><Check size={15} />Free-text name resolver</li><li><Check size={15} />Payment and chaperone triggers connected</li><li><Check size={15} />Prior tournament appearances retained</li></ul></article>
-              <article><p className="eyebrow">Next configuration</p><h3>Finish the season rules</h3><ul><li><span>—</span>Add a Confirmed Tournaments column</li><li><span>—</span>Fee and deadline for each tournament</li><li><span>—</span>Late-fee rule</li></ul></article>
+              <article><p className="eyebrow">Data rules</p><h3>Records stay useful</h3><ul><li><Check size={15} />Active students come from the 2026–27 form</li><li><Check size={15} />Inactive students remain searchable</li><li><Check size={15} />Parents stay linked for future chaperoning</li><li><Check size={15} />Tabroom and NSDA details remain login-only</li></ul></article>
+              <article><p className="eyebrow">Still needed</p><h3>Finish the financial picture</h3><ul><li><span>—</span>Beginning account balance before March 1</li><li><span>—</span>Fee and deadline for each tournament</li><li><span>—</span>Late-fee rule</li></ul></article>
             </section>
             <section className="name-matcher">
               <div><p className="eyebrow">Free-text matching</p><h2>No dropdown required.</h2><p>Names are cleaned for capitalization, extra spaces, punctuation, accents, and “last name, first name” order. Confident spelling mistakes are matched automatically; uncertain entries wait for review instead of being attached to the wrong student.</p></div>
@@ -387,7 +521,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
                 {nameMatch.status === 'unmatched' ? <div className="match-result review"><span>Not matched</span><strong>Leave unassigned</strong><small>The submission stays in the review queue.</small></div> : null}
               </div>
             </section>
-            <p className="source-note">Source note: Membership and history came from the supplied Speech and Debate ledger. Tournament dates came from the supplied 2026–27 draft schedule. Obvious January–June year labels were normalized to 2027; all TBA details remain marked TBA.</p>
+            <p className="source-note">Source note: The current roster comes from the 2026–27 membership response Sheet. Account readiness comes from the member setup Sheet. Older students, tournament history, and chaperone links remain retained. The account CSV covers March 1 through September 17, 2026 and shows a net change of {currency(accountSnapshot.netChange)}; it does not include the beginning balance.</p>
           </div>
         ) : null}
       </section>
@@ -397,12 +531,20 @@ export function DashboardApp({ members, tournaments, payments, chaperones, integ
           <aside className="member-drawer" aria-label={`${selectedMember.name} details`}>
             <button className="drawer-close" onClick={() => setSelectedMember(null)} aria-label="Close member details" type="button"><X size={20} /></button>
             <span className="drawer-avatar"><UserRound size={30} /></span><p className="eyebrow orange">Member record</p><h2>{selectedMember.name}</h2>
-            <div className="member-tags"><span>Student</span><span>Returning member</span></div>
-            <section className="drawer-balance"><div><span>2026–27 membership</span><strong>$45</strong></div><b><em className="status-dot unpaid" /> Unpaid</b></section>
+            <div className="member-tags"><span>Student</span><span>{selectedMember.memberType}</span><span>{selectedMember.activeSeason === '2026-27' ? 'Active 2026–27' : 'Inactive / alumni'}</span>{selectedMember.graduationYear ? <span>Class of {selectedMember.graduationYear}</span> : null}</div>
+            <section className="drawer-balance"><div><span>2026–27 membership</span><strong>${selectedMember.membershipFee}</strong></div><b><em className={`status-dot ${selectedMember.membershipStatus.toLowerCase()}`} /> {selectedMember.membershipStatus}</b></section>
+            <section className="drawer-section"><p className="eyebrow">Tabroom + NSDA</p>
+              <div className="account-readiness">
+                <article><span>Tabroom</span><strong>{selectedMember.tabroomAccountCreated === 'yes' ? 'Set up' : selectedMember.tabroomAccountCreated === 'no' ? 'Needs setup' : 'Not recorded'}</strong><small>{selectedMember.tabroomEmail ?? 'No email recorded'}</small></article>
+                <article><span>NSDA</span><strong>{selectedMember.nsdaAccountCreated === 'yes' ? 'Set up' : selectedMember.nsdaAccountCreated === 'no' ? 'Needs setup' : 'Not recorded'}</strong><small>{selectedMember.nsdaEmail ?? 'No email recorded'}</small></article>
+              </div>
+              {selectedMember.jbJwLinked ? <p className="profile-note">JB/JW linked: <strong>{selectedMember.jbJwLinked}</strong></p> : null}
+            </section>
+            <section className="drawer-section"><p className="eyebrow">Member contact</p><dl className="profile-list"><div><dt>School email</dt><dd>{selectedMember.schoolEmail ?? 'Not recorded'}</dd></div><div><dt>Personal email</dt><dd>{selectedMember.personalEmail ?? 'Not recorded'}</dd></div><div><dt>Phone</dt><dd>{selectedMember.phoneNumber ?? 'Not recorded'}</dd></div><div><dt>Shirt</dt><dd>{selectedMember.shirtSize ?? 'Not recorded'}</dd></div></dl></section>
             <section className="drawer-section"><p className="eyebrow">Parent chaperone · {chaperonesByMember[selectedMember.id]?.length ?? 0}</p>
               {chaperonesByMember[selectedMember.id]?.length ? <ul className="chaperone-list">{chaperonesByMember[selectedMember.id].map((item) => <li key={item.parentName}><strong>{item.parentName}</strong><span>{item.approvedVolunteer === 'yes' ? 'UCPS approved' : item.approvedVolunteer === 'no' ? 'UCPS approval pending' : 'Approval not recorded'}</span><div className="chaperone-counts"><b><strong>{item.signupCount}</strong> signed up</b><b><strong>{item.confirmedCount}</strong> verified</b></div><small>{item.confirmedTournamentNames.length ? `Confirmed: ${item.confirmedTournamentNames.join(' · ')}` : item.tournamentNames.length ? `Signed up: ${item.tournamentNames.join(' · ')}` : 'Tournament not recorded'}</small></li>)}</ul> : <p className="body-copy">No parent response has been matched to this student.</p>}
             </section>
-            <section className="drawer-section"><p className="eyebrow">Competitive event</p><p className="body-copy">Not recorded in the payment ledger. This field is ready for the registration form.</p></section>
+            <section className="drawer-section"><p className="eyebrow">Competitive events</p><p className="body-copy">{Array.from(new Set([...selectedMember.priorEvents, ...selectedMember.eventHistory])).join(' · ') || 'No prior event recorded.'}</p></section>
             <section className="drawer-section"><p className="eyebrow">Tournament history · {selectedMember.tournamentHistory.length}</p>
               {selectedMember.tournamentHistory.length ? <ul className="history-list">{selectedMember.tournamentHistory.map((item) => <li key={item.tournament}><span>{item.tournament}</span><small>{readableHistoryDate(item.date)}</small></li>)}</ul> : <p className="body-copy">No prior tournament payments were found for this student.</p>}
             </section>

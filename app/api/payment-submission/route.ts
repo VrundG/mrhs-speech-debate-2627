@@ -2,7 +2,7 @@ import { tournaments } from '../../data/tournaments';
 import { resolveRosterName } from '../../lib/name-matcher';
 import { resolveTournamentName } from '../../lib/tournament-matcher';
 import { savePaymentSubmission } from '../../../db/payments';
-import { listMembers } from '../../../db/members';
+import { listMembers, markMemberMembershipPaid } from '../../../db/members';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,9 +52,6 @@ export async function POST(request: Request) {
     if (Number.isNaN(parsedTimestamp.getTime())) throw new Error('The response timestamp is invalid.');
 
     const receiptUrl = cleanText(body.receiptUrl, 2048);
-    if (receiptUrl && !/^https:\/\//i.test(receiptUrl)) {
-      throw new Error('The receipt must be an HTTPS link.');
-    }
     const tournamentName = cleanText(body.tournamentName, 240);
     const rosterMatch = resolveRosterName(studentName, await listMembers());
     const tournamentMatch = resolveTournamentName(tournamentName ?? '', tournaments);
@@ -81,6 +78,12 @@ export async function POST(request: Request) {
       tournamentMatchConfidence: tournamentMatch.confidence,
     });
 
+    const membershipProof = tournamentMatch.status === 'not_applicable'
+      && /(^|\b)(other|membership|dues)(\b|$)/i.test(`${paymentFor} ${tournamentName ?? ''}`);
+    if (membershipProof && rosterMatch.status === 'matched') {
+      await markMemberMembershipPaid(rosterMatch.member.id);
+    }
+
     return Response.json({
       ok: true,
       paymentId: id,
@@ -90,6 +93,7 @@ export async function POST(request: Request) {
       tournament: tournamentMatch.status === 'matched'
         ? { status: 'matched', name: tournamentMatch.tournament.name }
         : { status: tournamentMatch.status },
+      membershipUpdated: membershipProof && rosterMatch.status === 'matched',
     });
   } catch (error) {
     return Response.json(
