@@ -43,7 +43,7 @@ export async function credentialsAreValid(username: string, password: string) {
   const configured = configuredPassword();
   if (!configured) return false;
   const [usernameMatches, passwordMatches] = await Promise.all([
-    secureEqual(username.trim().toLowerCase(), 'mrhs speech and debate'),
+    secureEqual(username.trim().toLowerCase(), 'mrhs s&d'),
     secureEqual(password, configured),
   ]);
   return usernameMatches && passwordMatches;

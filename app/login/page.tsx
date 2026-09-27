@@ -30,7 +30,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             <h2>Welcome back.</h2>
             <p className="form-intro">Sign in to view the private student ledger.</p>
           </div>
-          <label><span>Username</span><input name="username" autoComplete="username" placeholder="MRHS speech and debate" required /></label>
+          <label><span>Username</span><input name="username" autoComplete="username" placeholder="MRHS S&amp;D" required /></label>
           <label><span>Password</span><input name="password" type="password" autoComplete="current-password" placeholder="Enter password" required /></label>
           {error === 'rate' ? <p className="form-error" role="alert">Too many attempts. Try again in 15 minutes.</p> : null}
           {error && error !== 'rate' ? <p className="form-error" role="alert">That username or password is incorrect.</p> : null}
