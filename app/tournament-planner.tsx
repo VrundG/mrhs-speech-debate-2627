@@ -15,6 +15,15 @@ const poolLabels:Record<JudgePool,string>={available:'Available',debate:'Debate'
 function cleanKey(value:string){return value.trim().toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();}
 function studentKey(intent:IntentSubmission){return intent.memberId??`intent:${cleanKey(intent.matchedStudentName??intent.studentNameRaw)}`;}
 function judgeKey(name:string,email:string|null,phone:string|null){return `judge:${cleanKey(email||phone||name)}`;}
+function judgeIdentityKeys(name:string,email:string|null,phone:string|null){
+  const normalizedEmail=email?.trim().toLowerCase();
+  const normalizedPhone=phone?.replace(/\D/g,'');
+  return [
+    normalizedEmail?`email:${normalizedEmail}`:null,
+    normalizedPhone?`phone:${normalizedPhone}`:null,
+    cleanKey(name)?`name:${cleanKey(name)}`:null,
+  ].filter((value):value is string=>Boolean(value));
+}
 function isTournamentSubmission(submission:ChaperoneSubmission,tournament:Tournament,tournaments:Tournament[]){return submission.tournamentNames.some(name=>{const match=resolveTournamentName(name,tournaments);return match.status==='matched'&&match.tournament.id===tournament.id;});}
 
 export function TournamentPlanner({ tournament, tournaments, intents, chaperones, members, initialPlan, onClose }:{tournament:Tournament;tournaments:Tournament[];intents:IntentSubmission[];chaperones:ChaperoneSubmission[];members:Member[];initialPlan:TournamentPlan|null;onClose:()=>void}){
@@ -27,9 +36,14 @@ export function TournamentPlanner({ tournament, tournaments, intents, chaperones
   const membersById=useMemo(()=>new Map(members.map(member=>[member.id,member])),[members]);
   const judges=useMemo(()=>{
     const map=new Map<string,JudgeCard>();
+    const identityIndex=new Map<string,string>();
     const add=(name:string,email:string|null,phone:string|null,linkedStudentKey:string|null,approved:JudgeCard['approved'],source:'Intent form'|'Chaperone form',preferred:string|null)=>{
-      if(!name.trim())return;const key=judgeKey(name,email,phone);const item=map.get(key)??{key,name,linkedStudentKeys:[],approved,source:new Set(),preferred};
+      if(!name.trim())return;
+      const identities=judgeIdentityKeys(name,email,phone);
+      const key=identities.map(identity=>identityIndex.get(identity)).find((match):match is string=>Boolean(match))??judgeKey(name,email,phone);
+      const item=map.get(key)??{key,name,linkedStudentKeys:[],approved,source:new Set(),preferred};
       if(linkedStudentKey&&!item.linkedStudentKeys.includes(linkedStudentKey))item.linkedStudentKeys.push(linkedStudentKey);if(approved==='yes'||item.approved==='unknown')item.approved=approved;item.source.add(source);if(!item.preferred&&preferred)item.preferred=preferred;map.set(key,item);
+      identities.forEach(identity=>identityIndex.set(identity,key));
     };
     for(const intent of relevantIntents){const linked=studentKey(intent);if(intent.parent1Judging&&intent.parent1Name)add(intent.parent1Name,intent.parent1Email,intent.parent1Phone,linked,'unknown','Intent form',intent.eventCategory);if(intent.parent2Judging&&intent.parent2Name)add(intent.parent2Name,intent.parent2Email,intent.parent2Phone,linked,'unknown','Intent form',intent.eventCategory);}
     for(const submission of chaperones){if(!isTournamentSubmission(submission,tournament,tournaments))continue;const linked=submission.memberId?students.find(student=>student.memberId===submission.memberId)?.key??null:students.find(student=>cleanKey(student.name)===cleanKey(submission.matchedStudentName??submission.studentNameRaw))?.key??null;add(submission.parentName,submission.parentEmail,submission.parentPhone,linked,submission.approvedVolunteer,'Chaperone form',submission.desiredEvent);}
