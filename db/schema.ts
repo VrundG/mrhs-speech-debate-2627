@@ -189,3 +189,11 @@ export const createTournamentPlansTable = `
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )
 `;
+
+export const createTournamentPfPartnersTable = `
+  CREATE TABLE IF NOT EXISTS tournament_pf_partners (
+    tournament_id TEXT PRIMARY KEY,
+    partner_assignments TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`;
