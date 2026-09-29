@@ -347,8 +347,11 @@ body { background-color:var(--paper); background-image:linear-gradient(rgba(23,2
 .planner-header>div>span { display:block; margin-top:.6rem; color:#aaa196; font-size:.74rem; }
 .planner-header .eyebrow { color:var(--orange); }
 .planner-actions { display:flex; align-items:center; gap:.55rem; flex:0 0 auto; }
-.planner-actions button { display:inline-flex; align-items:center; gap:.4rem; }
+.planner-actions button,.planner-actions a { display:inline-flex; align-items:center; gap:.4rem; }
 .planner-actions .outline-button { border-color:#5a5349; color:#fff; }
+.planner-actions a.outline-button { border:1px solid #5a5349; padding:.75rem .9rem; text-decoration:none; }
+.planner-actions .roster-action { background:#302b24; }
+.planner-actions .roster-action.disabled { cursor:not-allowed; opacity:.45; pointer-events:none; }
 .confirm-button,.planner-close { border:0; background:var(--orange); color:var(--ink); padding:.75rem .9rem; cursor:pointer; font-weight:800; }
 .confirm-button.confirmed { background:#dce8dc; color:var(--green); }
 .planner-close { display:grid!important; width:2.55rem; height:2.55rem; place-items:center; padding:0; background:#29251f; color:#fff; }
