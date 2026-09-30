@@ -1,6 +1,7 @@
 import { isAuthenticated } from '../../auth';
 import { tournaments } from '../../data/tournaments';
 import { buildPermissionFormPdf } from '../../lib/permission-form-pdf';
+import templateDataUrl from '../../assets/permission-form-template.jpg?inline';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,12 @@ function filename(value: string) {
   );
 }
 
+function templateBytes() {
+  const encoded = templateDataUrl.slice(templateDataUrl.indexOf(',') + 1);
+  const binary = atob(encoded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
 export async function GET(request: Request) {
   if (!(await isAuthenticated()))
     return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
@@ -22,13 +29,8 @@ export async function GET(request: Request) {
       new URL(request.url).searchParams.get('tournamentId') ?? '';
     const tournament = tournaments.find((item) => item.id === tournamentId);
     if (!tournament) throw new Error('Unknown tournament.');
-    const templateResponse = await fetch(
-      new URL('/permission-form-template.jpg', request.url),
-    );
-    if (!templateResponse.ok)
-      throw new Error('The permission form template is unavailable.');
     const { bytes } = buildPermissionFormPdf(
-      new Uint8Array(await templateResponse.arrayBuffer()),
+      templateBytes(),
       tournament,
     );
     return new Response(bytes, {
