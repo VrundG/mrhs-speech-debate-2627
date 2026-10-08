@@ -36,6 +36,10 @@ function sourceKey_(e) {
   return [e.source.getId(), e.range.getSheet().getSheetId(), e.range.getRow()].join(':');
 }
 
+function stableResponseKey_(e, timestamp) {
+  return [e.source.getId(), e.range.getSheet().getSheetId(), 'timestamp', timestamp].join(':');
+}
+
 function paymentPayload_(e) {
   const values = e.namedValues;
   return {
@@ -111,8 +115,9 @@ function chaperonePayload_(e) {
 
 function intentPayload_(e) {
   const values = e.namedValues;
+  const timestamp = isoTimestamp(firstValue(values, ['Timestamp']));
   return {
-    sourceKey: sourceKey_(e), sourceRow: e.range.getRow(), timestamp: isoTimestamp(firstValue(values, ['Timestamp'])),
+    sourceKey: stableResponseKey_(e, timestamp), sourceRow: e.range.getRow(), timestamp: timestamp,
     studentName: [firstValue(values, ['First Name']), firstValue(values, ['Last Name'])].filter(Boolean).join(' '),
     tabroomEmail: firstValue(values, ['Tabroom Email']), studentPhone: firstValue(values, ['Personal Cell #']),
     tournamentName: firstValue(values, ['Tournament Name']), event: firstValue(values, ['Event']),

@@ -17,8 +17,12 @@ function tournamentScore(input: string, tournament: Tournament) {
     'marvin ridge speech debate tutorial': 'mrhs fall scrimmage',
     'marvin fall scrimmage': 'mrhs fall scrimmage',
     'nsda springboard scrimmage 1 online': 'nsda springboard scrimmage 1',
+    'cougar asheville': 'cougar classic at asheville high school',
   };
-  const baseInput = normalizePersonName(input.replace(/\([^)]*\d{1,2}\s*\/\s*\d{1,2}[^)]*\)/g, ''));
+  const baseInput = normalizePersonName(input.replace(/\([^)]*\d{1,2}\s*\/\s*\d{1,2}[^)]*\)/g, ''))
+    .replace(/\b(?:online|overnight)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   const normalizedInput = aliases[baseInput] ?? baseInput;
   const normalizedName = aliases[normalizePersonName(tournament.name)] ?? normalizePersonName(tournament.name);
   const inputTokens = normalizedInput.split(' ').filter(Boolean);

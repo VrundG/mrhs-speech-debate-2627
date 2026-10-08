@@ -12,8 +12,15 @@ async function authorized(request:Request){const configured=process.env.MRHS_FOR
 function yes(value:unknown){return typeof value==='string'&&/^(yes|y|true|1)/i.test(value.trim());}
 function category(value:string):EventCategory { const text=value.toLowerCase(); if(/congress|congressional/.test(text))return'congress'; if(/(^|\W)ld(\W|$)|lincoln/.test(text))return'ld'; if(/(^|\W)pf(\W|$)|public forum/.test(text))return'pf'; if(/speech/.test(text))return'speech'; return'other'; }
 async function prepare(body:Body):Promise<SaveIntentInput>{
-  const sourceKey=clean(body.sourceKey,300,true)!;const studentName=clean(body.studentName,160,true)!;const tournamentName=clean(body.tournamentName,240,true)!;const eventRaw=clean(body.event,200,true)!;
+  const submittedSourceKey=clean(body.sourceKey,300,true)!;const studentName=clean(body.studentName,160,true)!;const tournamentName=clean(body.tournamentName,240,true)!;const eventRaw=clean(body.event,200,true)!;
   const parsed=new Date(clean(body.timestamp,100,true)!);if(Number.isNaN(parsed.getTime()))throw new Error('The response timestamp is invalid.');
+  // Google Sheets row numbers change when a response sheet is sorted. Keep the
+  // spreadsheet and tab identity, but key each response by its immutable form
+  // timestamp so a later full sync updates the same record instead of a
+  // different student who happens to occupy that row.
+  const sourceParts=submittedSourceKey.split(':');
+  const sourceIdentity=sourceParts.length>=2?sourceParts.slice(0,2).join(':'):'intent';
+  const sourceKey=`${sourceIdentity}:timestamp:${parsed.toISOString()}`;
   const [roster,tournament]=[resolveRosterName(studentName,await listMembers()),resolveTournamentName(tournamentName,tournaments)];
   return {id:(await digest(sourceKey)).slice(0,24),sourceKey,sourceRow:typeof body.sourceRow==='number'&&Number.isInteger(body.sourceRow)?body.sourceRow:null,formTimestamp:parsed.toISOString(),studentNameRaw:studentName,
     memberId:roster.status==='matched'?roster.member.id:null,matchedStudentName:roster.status==='matched'?roster.member.name:null,studentMatchStatus:roster.status==='empty'?'unmatched':roster.status,studentMatchConfidence:'confidence'in roster?roster.confidence:null,
