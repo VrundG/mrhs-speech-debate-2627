@@ -11,6 +11,8 @@ function tournamentScore(input: string, tournament: Tournament) {
   const aliases: Record<string, string> = {
     'north mecklenburg viking classic': 'n mecklenburg viking classic',
     'north meck viking classic': 'n mecklenburg viking classic',
+    'corona char latin': 'corona rostrensis at charlotte latin',
+    'corona charlotte latin': 'corona rostrensis at charlotte latin',
     'marvin tutorial': 'mrhs fall scrimmage',
     'marvin ridge speech debate tutorial': 'mrhs fall scrimmage',
     'marvin fall scrimmage': 'mrhs fall scrimmage',
