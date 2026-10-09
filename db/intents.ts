@@ -59,11 +59,12 @@ export async function saveIntentSubmissions(inputs: SaveIntentInput[]) {
 export async function deleteStaleIntentSubmissions(sourceIdentity: string, currentSourceKeys: string[]) {
   if (!currentSourceKeys.length) throw new Error('At least one current intent response is required.');
   const db = await ensureSchema();
+  const sourcePrefix = `${sourceIdentity}:timestamp:`;
   const existing = await db.prepare(`
     SELECT source_key
     FROM intent_submissions
-    WHERE source_key LIKE ?
-  `).bind(`${sourceIdentity}:timestamp:%`).all<{ source_key: string }>();
+    WHERE substr(source_key, 1, ?) = ?
+  `).bind(sourcePrefix.length, sourcePrefix).all<{ source_key: string }>();
   const current = new Set(currentSourceKeys);
   const stale = existing.results.map((row) => row.source_key).filter((sourceKey) => !current.has(sourceKey));
   for (let offset = 0; offset < stale.length; offset += 50) {
