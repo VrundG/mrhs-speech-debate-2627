@@ -193,8 +193,27 @@ function syncAllChaperoneRows() {
 }
 
 function syncAllIntentRows() {
-  const failures = syncSheet_(MRHS_SHEETS.intent, MRHS_SHEET_TABS.intent, '/api/intent-submission', intentPayload_);
+  const source = SpreadsheetApp.openById(MRHS_SHEETS.intent);
+  const sheet = source.getSheetByName(MRHS_SHEET_TABS.intent);
+  if (!sheet) throw new Error('Could not find ' + MRHS_SHEET_TABS.intent + ' in ' + source.getName());
+  const data = sheet.getDataRange().getValues();
+  const headings = data[0];
+  const failures = [];
+  const timestamps = [];
+  for (let rowIndex = 1; rowIndex < data.length; rowIndex += 1) {
+    try {
+      const payload = intentPayload_(rowEvent_(source, sheet, rowIndex + 1, headings, data[rowIndex]));
+      post_('/api/intent-submission', payload);
+      timestamps.push(payload.timestamp);
+    } catch (error) {
+      failures.push('row ' + (rowIndex + 1) + ': ' + error.message);
+    }
+  }
   if (failures.length) throw new Error('Intent sync has ' + failures.length + ' review item(s): ' + failures.slice(0, 10).join(' | '));
+  post_('/api/intent-reconcile', {
+    sourceKey: [source.getId(), sheet.getSheetId()].join(':'),
+    timestamps: timestamps
+  });
 }
 
 function syncAllDashboardData() {

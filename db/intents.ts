@@ -55,3 +55,15 @@ export async function saveIntentSubmissions(inputs: SaveIntentInput[]) {
     await db.batch(statements);
   }
 }
+
+export async function deleteStaleIntentSubmissions(sourceIdentity: string, currentSourceKeys: string[]) {
+  if (!currentSourceKeys.length) throw new Error('At least one current intent response is required.');
+  const db = await ensureSchema();
+  const placeholders = currentSourceKeys.map(() => '?').join(',');
+  const result = await db.prepare(`
+    DELETE FROM intent_submissions
+    WHERE source_key LIKE ?
+      AND source_key NOT IN (${placeholders})
+  `).bind(`${sourceIdentity}:timestamp:%`, ...currentSourceKeys).run();
+  return result.meta.changes ?? 0;
+}
