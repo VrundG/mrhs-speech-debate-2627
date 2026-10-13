@@ -56,6 +56,7 @@ function buildChaperonePayload(values, sourceId, sheetId, rowNumber) {
     tournamentNames: tournamentNames,
     confirmedTournamentNames: confirmedTournaments(attendanceValue, tournamentNames),
     approvedVolunteer: firstValue(values, [
+      'Already Approved UCPS Volunteer for 26-27?  This is required to ride bus as a chaperone (If not, please do begin the process ASAP / See above)',
       'Approved UCPS Volunteer? This is required to ride bus as a chaperone (If not, please do begin the process to be approved / See above)',
       'Approved UCPS',
     ]),
