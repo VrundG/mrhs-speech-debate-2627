@@ -39,8 +39,8 @@ async function authorized(request: Request) {
 
 function approvedStatus(value: unknown): 'yes' | 'no' | 'unknown' {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (normalized === 'yes') return 'yes';
-  if (normalized === 'no') return 'no';
+  if (normalized === 'yes' || normalized === 'staff' || normalized === 'approved') return 'yes';
+  if (normalized === 'no' || normalized === 'not approved' || normalized === 'pending') return 'no';
   return 'unknown';
 }
 

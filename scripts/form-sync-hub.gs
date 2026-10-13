@@ -14,9 +14,21 @@ function isoTimestamp(value) {
   return isNaN(parsed.getTime()) ? '' : parsed.toISOString();
 }
 
+function normalizedHeading_(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
 function firstValue(values, headings) {
   for (let index = 0; index < headings.length; index += 1) {
     const value = values[headings[index]];
+    if (value !== undefined) return String(Array.isArray(value) ? value[0] : value).trim();
+  }
+  const normalizedValues = {};
+  Object.keys(values).forEach(function (heading) {
+    normalizedValues[normalizedHeading_(heading)] = values[heading];
+  });
+  for (let index = 0; index < headings.length; index += 1) {
+    const value = normalizedValues[normalizedHeading_(headings[index])];
     if (value !== undefined) return String(Array.isArray(value) ? value[0] : value).trim();
   }
   return '';
@@ -109,7 +121,11 @@ function chaperonePayload_(e) {
     desiredEvent: firstValue(values, ['Desired Event to Judge']), transport: firstValue(values, ['Can you ride the bus with us to & from?']),
     tournamentNames: splitTournaments_(firstValue(values, ['Tournament to Attend'])),
     confirmedTournamentNames: splitTournaments_(firstValue(values, ['Confirmed Tournaments'])),
-    approvedVolunteer: firstValue(values, ['Already Approved UCPS Volunteer for 26-27? If not, please complete the form here: https://www.ucps.k12.nc.us/Page/5869', 'Already Approved UCPS Volunteer for 26-27?'])
+    approvedVolunteer: firstValue(values, [
+      'Already Approved UCPS Volunteer for 26-27?  This is required to ride bus as a chaperone (If not, please do begin the process ASAP / See above)',
+      'Already Approved UCPS Volunteer for 26-27? If not, please complete the form here: https://www.ucps.k12.nc.us/Page/5869',
+      'Already Approved UCPS Volunteer for 26-27?'
+    ])
   };
 }
 
