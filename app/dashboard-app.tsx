@@ -44,7 +44,7 @@ type ChaperoneRelationship = {
   confirmedCount: number;
   approvedVolunteer: 'yes' | 'no' | 'unknown';
 };
-type ChaperoneDirectoryEntry = ChaperoneRelationship & { memberIds: string[] };
+type ChaperoneDirectoryEntry = ChaperoneRelationship & { memberIds: string[]; studentNames: string[] };
 
 type IntegrationLinks = {
   paymentForm: string | null;
@@ -125,9 +125,9 @@ export function DashboardApp({ members, tournaments, payments, chaperones, inten
       confirmedTournamentNames: Set<string>;
       approvedVolunteer: ChaperoneRelationship['approvedVolunteer'];
       memberIds: Set<string>;
+      studentNames: Set<string>;
     }>();
     for (const submission of chaperones) {
-      if (submission.studentMatchStatus !== 'matched' || !submission.memberId) continue;
       const key = parentKey(submission.parentName);
       const existing = directory.get(key);
       const approvedVolunteer = existing?.approvedVolunteer === 'yes' || submission.approvedVolunteer === 'yes'
@@ -139,10 +139,12 @@ export function DashboardApp({ members, tournaments, payments, chaperones, inten
         confirmedTournamentNames: new Set<string>(),
         approvedVolunteer,
         memberIds: new Set<string>(),
+        studentNames: new Set<string>(),
       };
       submission.tournamentNames.forEach((name) => record.tournamentNames.add(name));
       submission.confirmedTournamentNames.forEach((name) => record.confirmedTournamentNames.add(name));
-      record.memberIds.add(submission.memberId);
+      if (submission.studentMatchStatus === 'matched' && submission.memberId) record.memberIds.add(submission.memberId);
+      record.studentNames.add(submission.matchedStudentName ?? submission.studentNameRaw);
       record.approvedVolunteer = approvedVolunteer;
       directory.set(key, record);
     }
@@ -154,6 +156,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, inten
       confirmedCount: record.confirmedTournamentNames.size,
       approvedVolunteer: record.approvedVolunteer,
       memberIds: Array.from(record.memberIds),
+      studentNames: Array.from(record.studentNames),
     })).sort((a, b) => a.parentName.localeCompare(b.parentName));
     const grouped: Record<string, ChaperoneRelationship[]> = {};
     relationships.forEach((relationship) => relationship.memberIds.forEach((memberId) => {
@@ -168,7 +171,7 @@ export function DashboardApp({ members, tournaments, payments, chaperones, inten
     const query = chaperoneSearch.trim().toLowerCase();
     const result = chaperoneDirectory.filter((chaperone) => {
       const linkedNames = chaperone.memberIds.map((memberId) => membersById.get(memberId)?.name ?? '').filter(Boolean);
-      const searchText = [chaperone.parentName, ...linkedNames, ...chaperone.tournamentNames].join(' ').toLowerCase();
+      const searchText = [chaperone.parentName, ...chaperone.studentNames, ...linkedNames, ...chaperone.tournamentNames].join(' ').toLowerCase();
       const approvalMatch = directoryVolunteerFilter === 'All approval'
         || (directoryVolunteerFilter === 'UCPS approved' && chaperone.approvedVolunteer === 'yes')
         || (directoryVolunteerFilter === 'Approval needed' && chaperone.approvedVolunteer === 'no')
@@ -411,11 +414,13 @@ export function DashboardApp({ members, tournaments, payments, chaperones, inten
               <div className="chaperone-directory-row table-head"><span>Chaperone</span><span>UCPS status</span><span>Linked student</span><span>Tournament commitments</span><span>Verified service</span></div>
               {filteredChaperones.map((chaperone) => {
                 const linkedMembers = chaperone.memberIds.map((memberId) => membersById.get(memberId)).filter((member): member is Member => Boolean(member));
+                const linkedMemberNames = new Set(linkedMembers.map((member) => parentKey(member.name)));
+                const unlinkedStudentNames = chaperone.studentNames.filter((name) => !linkedMemberNames.has(parentKey(name)));
                 return (
                   <article className="chaperone-directory-row" key={parentKey(chaperone.parentName)}>
                     <span className="volunteer-name"><i>{chaperone.parentName.split(' ').map((part) => part[0]).slice(0, 2).join('')}</i><b>{chaperone.parentName}</b></span>
                     <span><em className={`approval-badge ${chaperone.approvedVolunteer}`}>{chaperone.approvedVolunteer === 'yes' ? 'UCPS approved' : chaperone.approvedVolunteer === 'no' ? 'Approval needed' : 'Not recorded'}</em></span>
-                    <span className="linked-students">{linkedMembers.map((member) => <button key={member.id} type="button" onClick={() => setSelectedMember(member)}>{member.name}<ChevronRight size={13} /></button>)}</span>
+                    <span className="linked-students">{linkedMembers.map((member) => <button key={member.id} type="button" onClick={() => setSelectedMember(member)}>{member.name}<ChevronRight size={13} /></button>)}{unlinkedStudentNames.map((name, index) => <span key={`${parentKey(name)}-${index}`}>{name} <small>not matched</small></span>)}</span>
                     <span className="commitment-cell"><strong>{chaperone.signupCount}</strong><small>{chaperone.tournamentNames.length ? `${chaperone.tournamentNames.slice(0, 2).join(' · ')}${chaperone.tournamentNames.length > 2 ? ` · +${chaperone.tournamentNames.length - 2}` : ''}` : 'No tournament recorded'}</small></span>
                     <span className="verified-cell"><strong>{chaperone.confirmedCount}</strong><small>{chaperone.confirmedTournamentNames.length ? chaperone.confirmedTournamentNames.slice(0, 2).join(' · ') : 'Awaiting confirmation'}</small></span>
                   </article>
