@@ -1,5 +1,11 @@
 import { env } from 'cloudflare:workers';
-import { createIntentMemberIndex, createIntentSubmissionsTable, createIntentTournamentIndex } from './schema';
+import {
+  createIntentMemberIndex,
+  createIntentSubmissionsTable,
+  createIntentTournamentIndex,
+  createPermissionFormChecksMemberIndex,
+  createPermissionFormChecksTable,
+} from './schema';
 
 export type EventCategory = 'ld' | 'pf' | 'speech' | 'congress' | 'other';
 export type IntentSubmission = {
@@ -9,6 +15,7 @@ export type IntentSubmission = {
   eventRaw: string; eventCategory: EventCategory; eventDetails: string | null; tabroomEmail: string | null; studentPhone: string | null;
   parent1Name: string | null; parent1Email: string | null; parent1Phone: string | null; parent1Judging: boolean;
   parent2Name: string | null; parent2Email: string | null; parent2Phone: string | null; parent2Judging: boolean;
+  permissionFormStatus: 'received' | 'emailed' | null;
   receivedAt: string;
 };
 
@@ -18,13 +25,20 @@ type IntentRow = {
   matched_tournament_name:string|null; tournament_match_status:IntentSubmission['tournamentMatchStatus']; tournament_match_confidence:number|null;
   event_raw:string; event_category:EventCategory; event_details:string|null; tabroom_email:string|null; student_phone:string|null;
   parent_1_name:string|null; parent_1_email:string|null; parent_1_phone:string|null; parent_1_judging:number;
-  parent_2_name:string|null; parent_2_email:string|null; parent_2_phone:string|null; parent_2_judging:number; received_at:string;
+  parent_2_name:string|null; parent_2_email:string|null; parent_2_phone:string|null; parent_2_judging:number;
+  permission_form_status:IntentSubmission['permissionFormStatus']; received_at:string;
 };
 
 function database() { return (env as unknown as { DB: D1Database }).DB; }
 async function ensureSchema() {
   const db = database();
-  await db.batch([db.prepare(createIntentSubmissionsTable), db.prepare(createIntentTournamentIndex), db.prepare(createIntentMemberIndex)]);
+  await db.batch([
+    db.prepare(createIntentSubmissionsTable),
+    db.prepare(createIntentTournamentIndex),
+    db.prepare(createIntentMemberIndex),
+    db.prepare(createPermissionFormChecksTable),
+    db.prepare(createPermissionFormChecksMemberIndex),
+  ]);
   return db;
 }
 function toIntent(row: IntentRow): IntentSubmission {
@@ -35,15 +49,24 @@ function toIntent(row: IntentRow): IntentSubmission {
     tournamentMatchStatus:row.tournament_match_status, tournamentMatchConfidence:row.tournament_match_confidence, eventRaw:row.event_raw,
     eventCategory:row.event_category, eventDetails:row.event_details, tabroomEmail:row.tabroom_email, studentPhone:row.student_phone,
     parent1Name:row.parent_1_name, parent1Email:row.parent_1_email, parent1Phone:row.parent_1_phone, parent1Judging:Boolean(row.parent_1_judging),
-    parent2Name:row.parent_2_name, parent2Email:row.parent_2_email, parent2Phone:row.parent_2_phone, parent2Judging:Boolean(row.parent_2_judging), receivedAt:row.received_at,
+    parent2Name:row.parent_2_name, parent2Email:row.parent_2_email, parent2Phone:row.parent_2_phone, parent2Judging:Boolean(row.parent_2_judging),
+    permissionFormStatus:row.permission_form_status, receivedAt:row.received_at,
   };
 }
 export async function listIntentSubmissions(limit = 8000) {
   const db = await ensureSchema();
-  const result = await db.prepare('SELECT * FROM intent_submissions ORDER BY form_timestamp DESC, received_at DESC LIMIT ?').bind(limit).all<IntentRow>();
+  const result = await db.prepare(`
+    SELECT intent_submissions.*, permission_form_checks.status AS permission_form_status
+    FROM intent_submissions
+    LEFT JOIN permission_form_checks
+      ON permission_form_checks.tournament_id = intent_submissions.tournament_id
+      AND permission_form_checks.student_name_key = lower(trim(coalesce(intent_submissions.matched_student_name, intent_submissions.student_name_raw)))
+    ORDER BY intent_submissions.form_timestamp DESC, intent_submissions.received_at DESC
+    LIMIT ?
+  `).bind(limit).all<IntentRow>();
   return result.results.map(toIntent);
 }
-export type SaveIntentInput = Omit<IntentSubmission, 'receivedAt' | 'sourceRow'> & { sourceKey:string; sourceRow:number|null };
+export type SaveIntentInput = Omit<IntentSubmission, 'receivedAt' | 'sourceRow' | 'permissionFormStatus'> & { sourceKey:string; sourceRow:number|null };
 export async function saveIntentSubmissions(inputs: SaveIntentInput[]) {
   const db = await ensureSchema();
   for (let offset=0; offset<inputs.length; offset+=50) {

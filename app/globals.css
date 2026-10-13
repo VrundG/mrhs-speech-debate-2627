@@ -385,6 +385,10 @@ body { background-color:var(--paper); background-image:linear-gradient(rgba(23,2
 .double-entry-badge { width:max-content; margin-top:.14rem; padding:.2rem .32rem; background:#2a251f; color:#fff; font-size:.52rem; font-style:normal; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
 .team-member.covered { border-color:#89a98d; background:#dce8dc; box-shadow:inset 3px 0 var(--green); }
 .team-member.covered span,.team-member.covered strong { color:var(--green); }
+.team-member.permission-received { border-color:#b99ace; background:#eadcf4; box-shadow:inset 3px 0 #7c4c9c; }
+.team-member.permission-received span,.team-member.permission-received strong { color:#56356d; }
+.team-member.permission-emailed { border-color:#dfab71; background:#f9dfc5; box-shadow:inset 3px 0 #b86d28; }
+.team-member.permission-emailed span,.team-member.permission-emailed strong { color:#7a431c; }
 .team-member.unmatched { border-style:dashed; background:#fffaf1; }
 .team-member.unmatched strong { color:#8b5b22; font-size:.67rem; white-space:normal; }
 .partner-picker { display:grid; gap:.3rem; padding:.5rem; border:1px dashed #c6b8a7; background:#fffaf1; }
