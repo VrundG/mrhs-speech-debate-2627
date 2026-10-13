@@ -382,6 +382,7 @@ body { background-color:var(--paper); background-image:linear-gradient(rgba(23,2
 .team-member { display:grid; gap:.16rem; padding:.52rem .58rem; border:1px solid #d8ccbc; background:#f4ecdf; }
 .team-member span { color:var(--muted); font-size:.55rem; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
 .team-member strong { overflow:hidden; font-size:.79rem; text-overflow:ellipsis; white-space:nowrap; }
+.double-entry-badge { width:max-content; margin-top:.14rem; padding:.2rem .32rem; background:#2a251f; color:#fff; font-size:.52rem; font-style:normal; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
 .team-member.covered { border-color:#89a98d; background:#dce8dc; box-shadow:inset 3px 0 var(--green); }
 .team-member.covered span,.team-member.covered strong { color:var(--green); }
 .team-member.unmatched { border-style:dashed; background:#fffaf1; }
